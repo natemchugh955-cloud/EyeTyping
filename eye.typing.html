@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eye-Controlled Predictive Typing</title>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/face-landmarks-detection"></script>
+<style>
+  body { font-family: sans-serif; text-align: center; margin: 0; padding: 0; }
+  #video { width: 100%; max-width: 400px; transform: scaleX(-1); }
+  #letter { font-size: 80px; margin: 20px 0; }
+  #sentence { font-size: 30px; margin: 20px 0; }
+  #instructions { font-size: 20px; margin: 10px 0; }
+</style>
+</head>
+<body>
+
+<h1>Eye-Controlled Predictive Typing</h1>
+<video id="video" autoplay playsinline></video>
+<div id="letter">A</div>
+<div id="sentence"></div>
+<div id="instructions">Look UP for YES, DOWN for NO</div>
+
+<script>
+// --- Letters in user's familiar order ---
+const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+let currentLetterIndex = 0;
+
+// --- Predictive text dictionary (demo) ---
+const DICTIONARY = ['tell','mary','she','can','have','a','drink','is','it','hello','how','are','you'];
+
+// --- Sentence building ---
+let currentInput = '';
+let sentence = '';
+let suggestedWord = '';
+
+// --- DOM elements ---
+let video = document.getElementById('video');
+let letterDisplay = document.getElementById('letter');
+let sentenceDisplay = document.getElementById('sentence');
+
+// --- Camera setup ---
+async function setupCamera() {
+  video.width = 400;
+  video.height = 300;
+  const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+  video.srcObject = stream;
+  return new Promise(resolve => { video.onloadedmetadata = () => resolve(video); });
+}
+
+// --- Predictive text ---
+function updatePrediction() {
+  suggestedWord = '';
+  for (let word of DICTIONARY) {
+    if (word.startsWith(currentInput.toLowerCase())) {
+      suggestedWord = word;
+      break;
+    }
+  }
+  letterDisplay.textContent = letters[currentLetterIndex] + (suggestedWord ? ` → ${suggestedWord}` : '');
+}
+
+// --- Eye decision ---
+function selectYes() {
+  currentInput += letters[currentLetterIndex];
+  updatePrediction();
+  if (suggestedWord.toLowerCase() === currentInput.toLowerCase()) {
+    // Word complete
+    sentence += (sentence ? ' ' : '') + suggestedWord;
+    currentInput = '';
+    sentenceDisplay.textContent = sentence;
+  }
+  nextLetter();
+}
+
+function selectNo() {
+  nextLetter();
+}
+
+function nextLetter() {
+  currentLetterIndex++;
+  if (currentLetterIndex >= letters.length) currentLetterIndex = 0;
+  updatePrediction();
+}
+
+// --- Eye tracking ---
+async function detectEyes() {
+  const model = await faceLandmarksDetection.load(faceLandmarksDetection.SupportedPackages.mediapipeFacemesh);
+  let lastDecision = null;
+  async function frame() {
+    const predictions = await model.estimateFaces({ input: video });
+    if (predictions.length > 0) {
+      const keypoints = predictions[0].scaledMesh;
+      // Eye vertical positions (simple average of top and bottom eyelid)
+      const leftEye = keypoints.slice(159, 161);
+      const rightEye = keypoints.slice(386, 388);
+      const leftY = (leftEye[0][1] + leftEye[1][1]) / 2;
+      const rightY = (rightEye[0][1] + rightEye[1][1]) / 2;
+      const avgY = (leftY + rightY) / 2;
+      // Face center Y for comparison
+      const faceCenterY = (keypoints[10][1] + keypoints[152][1]) / 2;
+
+      let decision = null;
+      if (avgY < faceCenterY - 5) decision = 'YES';
+      else if (avgY > faceCenterY + 5) decision = 'NO';
+
+      if (decision && decision !== lastDecision) {
+        lastDecision = decision;
+        if (decision === 'YES') selectYes();
+        else if (decision === 'NO') selectNo();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+// --- Initialize ---
+setupCamera().then(() => {
+  updatePrediction();
+  detectEyes();
+});
+</script>
+
+</body>
+</html>
