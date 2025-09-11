@@ -4,162 +4,146 @@
   <meta charset="UTF-8">
   <title>Eye Typing Prototype</title>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-    #prompt { font-size: 24px; margin: 20px; }
-    #output { font-size: 20px; margin-top: 30px; }
-    button { font-size: 18px; margin: 10px; padding: 10px 20px; }
+    body { font-family: sans-serif; text-align: center; margin: 40px; }
+    #prompt { font-size: 2em; margin: 20px; }
+    #output { font-size: 1.5em; margin: 20px; }
+    button { font-size: 1.5em; margin: 10px; padding: 10px 20px; }
   </style>
 </head>
 <body>
-  <h2>Eye Typing Prototype (Button Test)</h2>
-  <div id="prompt">Press "Start" to begin</div>
-  <button onclick="yes()">YES (look up)</button>
-  <button onclick="no()">NO (look down)</button>
-  <button onclick="start()">Start</button>
+  <h1>Eye Typing Prototype</h1>
+  <div id="prompt">Loading dictionary...</div>
   <div id="output"></div>
+  <div>
+    <button onclick="userYes()">YES (Look Up)</button>
+    <button onclick="userNo()">NO (Look Down)</button>
+  </div>
 
-  <script>
-    const vowels = ["A","E","I","O","U"];
-    const consonants = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
+<script>
+let dictionary = [];
+let dictionaryLoaded = false;
 
-    // Fallback mini dictionary
-    let dictionary = ["hi","hello","pick","pickup","picked","picking","tell","the","this","time",
-                      "mary","she","can","have","a","drink","you","me","yes","no","good","day",
-                      "food","water","him","hit","help"];
+fetch("words-50k.txt")
+  .then(r => r.text())
+  .then(txt => {
+    dictionary = txt.split(/\r?\n/).map(w => w.toLowerCase()).filter(w => w.length > 0);
+    dictionaryLoaded = true;
+    startSession();
+  })
+  .catch(err => {
+    console.warn("Could not load words-50k.txt, falling back to mini dictionary");
+    dictionary = ["hi","hello","pick","pickup","have","help","yes","no","mary","tell","she","can","drink"];
+    dictionaryLoaded = true;
+    startSession();
+  });
 
-    // Try loading full dictionary from words.txt
-    fetch("words.txt")
-      .then(r => r.text())
-      .then(txt => {
-        dictionary = txt.split(/\r?\n/).map(w => w.toLowerCase());
-        console.log("Dictionary loaded:", dictionary.length, "words");
-      })
-      .catch(err => {
-        console.warn("Could not load words.txt, using fallback dictionary");
-      });
+let step = "idle";
+let currentWord = "";
+let sentence = [];
+let predictedLetters = [];
+let consonantOrder = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
 
-    let sentence = "";
-    let currentWord = "";
-    let step = "idle"; 
-    let letterIndex = 0;
-    let predictedLetters = [];
+function updatePrompt(msg){ document.getElementById("prompt").innerText = msg; }
+function updateOutput(){ document.getElementById("output").innerText = "Sentence: " + [...sentence,currentWord].join(" "); }
 
-    function start(){
-      sentence = "";
-      currentWord = "";
-      step = "askStart";
-      updatePrompt("Start a new sentence? (YES to begin)");
-      updateOutput();
+function startSession(){
+  currentWord = "";
+  sentence = [];
+  updateOutput();
+  step = "askVowel";
+  updatePrompt("Is the first letter a vowel? (YES/NO)");
+}
+
+function computePredictedLetters(prefix){
+  const possible = dictionary.filter(w => w.startsWith(prefix.toLowerCase()));
+  let nextCounts = {};
+  possible.forEach(w => {
+    if(w.length > prefix.length){
+      const next = w[prefix.length].toUpperCase();
+      nextCounts[next] = (nextCounts[next] || 0) + 1;
     }
+  });
+  return Object.entries(nextCounts)
+    .sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0]))
+    .map(entry => entry[0]);
+}
 
-    function yes(){
-      if(step === "askStart"){
-        step = "askVowel";
-        updatePrompt("Is it a vowel? (YES for vowels, NO for consonants)");
-      } 
-      else if(step === "askVowel"){
-        step = "vowel";
-        letterIndex = 0;
-        showNextLetter();
-      } 
-      else if(step === "consonant"){
-        addLetter(consonants[letterIndex]);
-      } 
-      else if(step === "vowel"){
-        addLetter(vowels[letterIndex]);
-      } 
-      else if(step === "askNextWord"){
-        sentence += currentWord + " ";
-        currentWord = "";
-        step = "askVowel";
-        updatePrompt("Is it a vowel? (YES for vowels, NO for consonants)");
-        updateOutput();
-      } 
-      else if(step === "predictLetter"){
-        addLetter(predictedLetters.shift()); // add current prediction
-      }
+function addLetter(letter){
+  currentWord += letter;
+  updateOutput();
+
+  // check exact word
+  if(dictionary.includes(currentWord.toLowerCase())){
+    step = "askNextWord";
+    updatePrompt(`Word is "${currentWord}". Next word? (YES/NO)`);
+    return;
+  }
+
+  // compute predictions
+  predictedLetters = computePredictedLetters(currentWord);
+  if(predictedLetters.length > 0){
+    step = "predictLetter";
+    updatePrompt("Is next letter '" + predictedLetters[0] + "'? (YES/NO)");
+  } else {
+    step = "askVowel";
+    updatePrompt("No predictions found. Is it a vowel? (YES/NO)");
+  }
+}
+
+function userYes(){
+  if(step === "askVowel"){
+    step = "askA"; updatePrompt("Is it A? (YES/NO)");
+  }
+  else if(step === "askA"){ addLetter("A"); }
+  else if(step === "askE"){ addLetter("E"); }
+  else if(step === "askI"){ addLetter("I"); }
+  else if(step === "askO"){ addLetter("O"); }
+  else if(step === "askU"){ addLetter("U"); }
+  else if(step === "askConsonant"){
+    addLetter(consonantOrder[0]);
+    consonantOrder.push(consonantOrder.shift());
+  }
+  else if(step === "predictLetter"){
+    addLetter(predictedLetters[0]);
+  }
+  else if(step === "askNextWord"){
+    sentence.push(currentWord);
+    currentWord = "";
+    updateOutput();
+    step = "askVowel";
+    updatePrompt("Start next word. Is it a vowel? (YES/NO)");
+  }
+}
+
+function userNo(){
+  if(step === "askVowel"){
+    step = "askConsonant"; updatePrompt("Is it " + consonantOrder[0] + "? (YES/NO)");
+  }
+  else if(step === "askA"){ step = "askE"; updatePrompt("Is it E? (YES/NO)"); }
+  else if(step === "askE"){ step = "askI"; updatePrompt("Is it I? (YES/NO)"); }
+  else if(step === "askI"){ step = "askO"; updatePrompt("Is it O? (YES/NO)"); }
+  else if(step === "askO"){ step = "askU"; updatePrompt("Is it U? (YES/NO)"); }
+  else if(step === "askU"){ step = "askConsonant"; updatePrompt("Is it " + consonantOrder[0] + "? (YES/NO)"); }
+  else if(step === "askConsonant"){
+    consonantOrder.push(consonantOrder.shift());
+    updatePrompt("Is it " + consonantOrder[0] + "? (YES/NO)");
+  }
+  else if(step === "predictLetter"){
+    predictedLetters.shift();
+    if(predictedLetters.length > 0){
+      updatePrompt("Is next letter '" + predictedLetters[0] + "'? (YES/NO)");
+    } else {
+      step = "askVowel";
+      updatePrompt("No more predictions. Is it a vowel? (YES/NO)");
     }
-
-    function no(){
-      if(step === "askStart"){
-        updatePrompt("Okay, not starting.");
-        step = "idle";
-      } 
-      else if(step === "askVowel"){
-        step = "consonant";
-        letterIndex = 0;
-        showNextLetter();
-      } 
-      else if(step === "consonant" || step === "vowel"){
-        letterIndex++;
-        showNextLetter();
-      } 
-      else if(step === "askNextWord"){
-        step = "askVowel";
-        updatePrompt("Continue spelling. Is it a vowel? (YES/NO)");
-      } 
-      else if(step === "predictLetter"){
-        predictedLetters.shift(); // drop this prediction
-        if(predictedLetters.length > 0){
-          updatePrompt("Is next letter '" + predictedLetters[0] + "'? (YES/NO)");
-        } else {
-          step = "askVowel";
-          updatePrompt("Is it a vowel? (YES/NO)");
-        }
-      }
-    }
-
-    function showNextLetter(){
-      let list = (step === "consonant") ? consonants : vowels;
-      if(letterIndex < list.length){
-        updatePrompt("Letter: " + list[letterIndex] + " ? (YES/NO)");
-      } else {
-        updatePrompt("No more letters in this set. Restart word?");
-        step = "askVowel";
-      }
-    }
-
-    function addLetter(letter){
-      currentWord += letter;
-      updateOutput();
-
-      // Check for full word
-      if(dictionary.includes(currentWord.toLowerCase())){
-        step = "askNextWord";
-        updatePrompt("Word is '" + currentWord + "'. Next word? (YES/NO)");
-        return;
-      }
-
-      // Predict next letters
-      const possible = dictionary.filter(w => w.startsWith(currentWord.toLowerCase()));
-      let nextCounts = {};
-      for(let w of possible){
-        if(w.length > currentWord.length){
-          let next = w[currentWord.length].toUpperCase();
-          nextCounts[next] = (nextCounts[next] || 0) + 1;
-        }
-      }
-      predictedLetters = Object.entries(nextCounts)
-        .sort((a,b) => b[1]-a[1])
-        .map(entry => entry[0]);
-
-      if(predictedLetters.length > 0){
-        step = "predictLetter";
-        updatePrompt("Is next letter '" + predictedLetters[0] + "'? (YES/NO)");
-      } else {
-        step = "askVowel";
-        updatePrompt("Is it a vowel? (YES/NO)");
-      }
-    }
-
-    function updatePrompt(text){
-      document.getElementById("prompt").innerText = text;
-    }
-
-    function updateOutput(){
-      document.getElementById("output").innerText = "Current: " + sentence + currentWord;
-    }
-  </script>
+  }
+  else if(step === "askNextWord"){
+    step = "askVowel";
+    updatePrompt("Continue spelling. Is next letter a vowel? (YES/NO)");
+  }
+}
+</script>
 </body>
 </html>
+
 
