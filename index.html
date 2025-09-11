@@ -23,7 +23,8 @@
 let dictionary = [];
 let dictionaryLoaded = false;
 
-fetch("words-50k.txt")
+// Load full 370k dictionary file (words.txt)
+fetch("words.txt")
   .then(r => r.text())
   .then(txt => {
     dictionary = txt.split(/\r?\n/).map(w => w.toLowerCase()).filter(w => w.length > 0);
@@ -31,7 +32,7 @@ fetch("words-50k.txt")
     startSession();
   })
   .catch(err => {
-    console.warn("Could not load words-50k.txt, falling back to mini dictionary");
+    console.warn("Could not load words.txt, falling back to mini dictionary");
     dictionary = ["hi","hello","pick","pickup","have","help","yes","no","mary","tell","she","can","drink"];
     dictionaryLoaded = true;
     startSession();
@@ -145,6 +146,3 @@ function userNo(){
 </script>
 </body>
 </html>
-
-
-
