@@ -1,297 +1,140 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<title>Eye Typing — Predict Next Letter Flow</title>
-<style>
-  body { font-family: Arial, sans-serif; max-width: 900px; margin: 36px auto; text-align: center; }
-  h1 { margin-bottom: 6px; }
-  #prompt { font-size: 20px; margin: 12px 0; min-height: 48px; }
-  #status { font-size: 16px; color: #444; margin: 8px 0; }
-  #display { font-size: 22px; margin: 8px 0; word-break: break-word; }
-  #predictions { font-size: 16px; color: #222; margin-top: 8px; }
-  button { font-size: 18px; padding: 10px 18px; margin: 8px; border-radius: 6px; cursor:pointer; }
-  #controls { margin-top: 12px; }
-</style>
+  <meta charset="UTF-8">
+  <title>Eye Blink Sentence Builder</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; margin-top: 40px; }
+    #prompt { font-size: 2em; margin: 20px; }
+    #current { font-size: 1.5em; margin-top: 10px; }
+    #log { margin-top: 20px; font-size: 1em; color: gray; }
+  </style>
 </head>
 <body>
-  <h1>Eye Typing — Predict Next Letter</h1>
-  <div id="prompt">Loading dictionary…</div>
-  <div id="status"></div>
-  <div id="display">Sentence: <span id="sentence"></span><span id="word"></span></div>
-  <div id="predictions"></div>
+  <h1>Eye Blink Sentence Builder</h1>
+  <div id="prompt">Look up to start</div>
+  <div id="current"></div>
+  <div id="log"></div>
 
-  <div id="controls">
-    <button id="startBtn">START</button>
-    <button id="yesBtn">YES (look up)</button>
-    <button id="noBtn">NO (look down)</button>
-    <button id="resetBtn">RESET</button>
-  </div>
+  <script>
+    let words = [];
+    let currentWord = "";
+    let currentSentence = "";
+    let predicting = false;
 
-<script>
-/* ===== Configuration ===== */
-const vowels = ["A","E","I","O","U"];
-const consonantOrder = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
-const DICT_PATH = "words.txt"; // put words.txt next to index.html (one per line)
+    // Custom letter orders
+    const vowels = ["a", "e", "i", "o", "u"];
+    const consonants = ["t","n","s","h","r","d","l","c","m","w","f","g","y","p","b","v","j","k","x","q","z"];
 
-/* ===== Runtime State ===== */
-let dictionary = [];
-let dictLoaded = false;
+    // Load dictionary
+    fetch("words.txt")
+      .then(res => res.text())
+      .then(text => {
+        words = text.split("\n").map(w => w.trim().toLowerCase()).filter(Boolean);
+        document.getElementById("log").innerText = `Dictionary loaded: ${words.length} words`;
+      })
+      .catch(err => {
+        console.error(err);
+        document.getElementById("log").innerText = "Failed to load words.txt";
+      });
 
-let step = "idle"; // idle | askVowel | scanVowel | scanConsonant | predictLetter | askNextWord
-let vowelIndex = 0;
-let consonantIndex = 0;
-let predictedLetters = []; // array of uppercase letters (most-likely first)
-let predictedIndex = 0;
-
-let sentenceArr = [];
-let currentWord = "";
-
-/* ===== DOM refs ===== */
-const promptEl = document.getElementById('prompt');
-const statusEl = document.getElementById('status');
-const sentenceEl = document.getElementById('sentence');
-const wordEl = document.getElementById('word');
-const predsEl = document.getElementById('predictions');
-const startBtn = document.getElementById('startBtn');
-const yesBtn = document.getElementById('yesBtn');
-const noBtn = document.getElementById('noBtn');
-const resetBtn = document.getElementById('resetBtn');
-
-/* ===== Helpers ===== */
-function setPrompt(t){ promptEl.innerText = t; }
-function setStatus(t){ statusEl.innerText = t; }
-function updateDisplay(){
-  sentenceEl.innerText = sentenceArr.join(" ") + (sentenceArr.length ? " " : "");
-  wordEl.innerText = currentWord;
-  if(step === "predictLetter" && predictedLetters.length > 0){
-    predsEl.innerText = "Predicted next letters: " + predictedLetters.join(", ");
-  } else {
-    predsEl.innerText = "";
-  }
-}
-
-/* load dictionary file */
-function loadDictionary(){
-  fetch(DICT_PATH)
-    .then(r => {
-      if(!r.ok) throw new Error("HTTP " + r.status);
-      return r.text();
-    })
-    .then(txt => {
-      dictionary = txt.split(/\r?\n/).map(s => s.trim().toLowerCase()).filter(Boolean);
-      dictLoaded = true;
-      setStatus("Dictionary loaded (" + dictionary.length + " words)");
-      setPrompt("Press START to begin.");
-    })
-    .catch(err => {
-      console.warn("Failed loading words.txt:", err);
-      // small fallback list so the app still works
-      dictionary = ["hi","hello","have","help","pick","pickup","him","hit","hike","tell","mary","can","drink","you","me","yes","no"];
-      dictLoaded = true;
-      setStatus("Using fallback dictionary (words.txt not found).");
-      setPrompt("Press START to begin.");
-    });
-}
-
-/* check exact word */
-function isExactWord(prefix){
-  return dictionary.includes(prefix.toLowerCase());
-}
-
-/* compute predicted next letters (most frequent first) */
-function computePredictedLetters(prefix){
-  const p = prefix.toLowerCase();
-  const counts = Object.create(null);
-  for(let i=0;i<dictionary.length;i++){
-    const w = dictionary[i];
-    if(w.startsWith(p) && w.length > p.length){
-      const next = w[p.length].toUpperCase();
-      counts[next] = (counts[next] || 0) + 1;
+    function filterCandidates(prefix) {
+      return words.filter(w => w.startsWith(prefix));
     }
-  }
-  // sort by frequency descending, tie-break alphabetically
-  const arr = Object.entries(counts).sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0])).map(e=>e[0]);
-  return arr;
-}
 
-/* accept a letter (from scan or prediction) */
-function acceptLetter(letter){
-  currentWord += letter;
-  setStatus("Added: " + letter);
-  // after adding, check if it's a full word
-  if(isExactWord(currentWord)){
-    step = "askNextWord";
-    setPrompt(`Word is "${currentWord}". Next word? (YES = accept / NO = continue spelling)`);
-    predictedLetters = [];
-    updateDisplay();
-    return;
-  }
-  // otherwise compute next-letter predictions
-  predictedLetters = computePredictedLetters(currentWord);
-  predictedIndex = 0;
-  if(predictedLetters.length > 0){
-    step = "predictLetter";
-    setPrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
-  } else {
-    // no predictions -> fall back to vowel/consonant decision
-    step = "askVowel";
-    setPrompt("No predictions. Is the next letter a vowel? (YES= vowel / NO= consonant)");
-  }
-  updateDisplay();
-}
+    function predictNextLetter(prefix) {
+      let candidates = filterCandidates(prefix);
+      if (candidates.length === 0) return null;
 
-/* handling "Next word? NO" -> continue predicting letters for longer words */
-function continueAfterExactWord(){
-  // compute next-letter predictions (letters that extend the exact word)
-  predictedLetters = computePredictedLetters(currentWord);
-  predictedIndex = 0;
-  if(predictedLetters.length > 0){
-    step = "predictLetter";
-    setPrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
-  } else {
-    step = "askVowel";
-    setPrompt("No predictions to extend word. Is next letter a vowel? (YES= vowel / NO= consonant)");
-  }
-  updateDisplay();
-}
-
-/* START / RESET flows */
-function startSession(){
-  if(!dictLoaded){ setPrompt("Dictionary still loading — wait a moment."); return; }
-  sentenceArr = [];
-  currentWord = "";
-  predictedLetters = [];
-  vowelIndex = 0;
-  consonantIndex = 0;
-  predictedIndex = 0;
-  step = "askVowel";
-  setPrompt("Start spelling. Is the first letter a vowel? (YES = vowel / NO = consonant)");
-  updateDisplay();
-}
-
-function resetAll(){
-  sentenceArr = [];
-  currentWord = "";
-  predictedLetters = [];
-  step = "idle";
-  setPrompt("Reset. Press START to begin.");
-  setStatus("");
-  updateDisplay();
-}
-
-/* ===== Button (Yes/No) handlers ===== */
-function handleYes(){
-  switch(step){
-    case "idle":
-      startSession();
-      break;
-    case "askVowel":
-      // YES => start scanning vowels
-      step = "scanVowel";
-      vowelIndex = 0;
-      setPrompt(`Is it "${vowels[vowelIndex]}"? (YES/NO)`);
-      break;
-    case "scanVowel":
-      acceptLetter(vowels[vowelIndex]);
-      break;
-    case "scanConsonant":
-      acceptLetter(consonantOrder[consonantIndex]);
-      break;
-    case "predictLetter":
-      // accept current predicted letter
-      if(predictedLetters.length > 0 && predictedIndex < predictedLetters.length){
-        acceptLetter(predictedLetters[predictedIndex]);
-      } else {
-        // gap fallback
-        setPrompt("No prediction to accept. Is next letter a vowel? (YES/NO)");
-        step = "askVowel";
+      let freq = {};
+      for (let w of candidates) {
+        if (w.length > prefix.length) {
+          let next = w[prefix.length];
+          freq[next] = (freq[next] || 0) + 1;
+        }
       }
-      break;
-    case "askNextWord":
-      // accept the word and start next
-      sentenceArr.push(currentWord);
-      currentWord = "";
-      predictedLetters = [];
-      vowelIndex = 0;
-      consonantIndex = 0;
-      predictedIndex = 0;
-      step = "askVowel";
-      setPrompt("Word accepted. Start next word. Is the first letter a vowel? (YES/NO)");
-      updateDisplay();
-      break;
-    default:
-      setStatus("Unhandled YES in state: " + step);
-  }
-}
 
-function handleNo(){
-  switch(step){
-    case "idle":
-      setPrompt("Press START to begin.");
-      break;
-    case "askVowel":
-      // NO => start scanning consonants
-      step = "scanConsonant";
-      consonantIndex = 0;
-      setPrompt(`Is it "${consonantOrder[consonantIndex]}"? (YES/NO)`);
-      break;
-    case "scanVowel":
-      vowelIndex++;
-      if(vowelIndex < vowels.length){
-        setPrompt(`Is it "${vowels[vowelIndex]}"? (YES/NO)`);
-      } else {
-        // after vowels exhausted, move to consonants
-        step = "scanConsonant";
-        consonantIndex = 0;
-        setPrompt(`Is it "${consonantOrder[consonantIndex]}"? (YES/NO)`);
-      }
-      break;
-    case "scanConsonant":
-      consonantIndex++;
-      if(consonantIndex < consonantOrder.length){
-        setPrompt(`Is it "${consonantOrder[consonantIndex]}"? (YES/NO)`);
-      } else {
-        // wrapped all consonants -> go back to vowel decision
-        step = "askVowel";
-        setPrompt("No match in consonants. Is the next letter a vowel? (YES/NO)");
-      }
-      break;
-    case "predictLetter":
-      // reject current predicted letter -> try next predicted
-      predictedIndex++;
-      if(predictedIndex < predictedLetters.length){
-        setPrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
-      } else {
-        // no more predicted letters => fall back to vowel/consonant scanning
-        predictedLetters = [];
-        predictedIndex = 0;
-        step = "askVowel";
-        setPrompt("No more predictions. Is the next letter a vowel? (YES/NO)");
-      }
-      break;
-    case "askNextWord":
-      // NO to finishing the word -> continue spelling / predict extensions
-      continueAfterExactWord();
-      break;
-    default:
-      setStatus("Unhandled NO in state: " + step);
-  }
-  updateDisplay();
-}
+      let sorted = Object.entries(freq).sort((a,b) => b[1] - a[1]);
+      return sorted.length > 0 ? sorted[0][0] : null;
+    }
 
-/* Hook UI */
-startBtn.addEventListener('click', startSession);
-resetBtn.addEventListener('click', resetAll);
-yesBtn.addEventListener('click', handleYes);
-noBtn.addEventListener('click', handleNo);
+    function askLetter() {
+      if (currentWord === "") {
+        document.getElementById("prompt").innerText = "Is it a vowel?";
+        return;
+      }
 
-/* load dictionary on page load */
-loadDictionary();
-resetAll();
-</script>
+      let next = predictNextLetter(currentWord);
+      if (next) {
+        document.getElementById("prompt").innerText = `Is next letter "${next.toUpperCase()}"?`;
+      } else {
+        document.getElementById("prompt").innerText = "No predictions. Continue manually.";
+      }
+
+      document.getElementById("current").innerText = `Current: ${currentSentence} ${currentWord}`;
+    }
+
+    function confirmLetter(letter) {
+      currentWord += letter;
+      let candidates = filterCandidates(currentWord);
+
+      // If exact word match
+      if (candidates.includes(currentWord)) {
+        document.getElementById("prompt").innerText = `Word complete: "${currentWord}". Next word?`;
+        predicting = true;
+      } else {
+        askLetter();
+      }
+    }
+
+    // --- Simulation buttons for testing ---
+    document.addEventListener("keydown", e => {
+      if (e.key === "Enter") {
+        // Reset everything
+        currentWord = "";
+        currentSentence = "";
+        document.getElementById("prompt").innerText = "Is it a vowel?";
+      }
+
+      if (e.key === "y") { // YES
+        let prompt = document.getElementById("prompt").innerText;
+
+        if (prompt === "Is it a vowel?") {
+          document.getElementById("prompt").innerText = `Choose vowel: ${vowels.join(", ")}`;
+        }
+        else if (prompt.startsWith("Choose vowel")) {
+          confirmLetter(vowels[0]); // simplified: always take 'a'
+        }
+        else if (prompt.startsWith("Is next letter")) {
+          let letter = prompt.split('"')[1].toLowerCase();
+          confirmLetter(letter);
+        }
+        else if (prompt.startsWith("Word complete")) {
+          // user said YES to next word
+          currentSentence += currentWord + " ";
+          currentWord = "";
+          predicting = false;
+          document.getElementById("prompt").innerText = "Is it a vowel?";
+        }
+      }
+
+      if (e.key === "n") { // NO
+        let prompt = document.getElementById("prompt").innerText;
+
+        if (prompt === "Is it a vowel?") {
+          document.getElementById("prompt").innerText = `Choose consonant: ${consonants.join(", ")}`;
+        }
+        else if (prompt.startsWith("Word complete")) {
+          // user said NO → keep spelling longer word
+          askLetter();
+        }
+      }
+    });
+  </script>
 </body>
 </html>
+
+
 
 
 
