@@ -1,223 +1,213 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Eye Typing Prototype</title>
+  <meta charset="UTF-8" />
+  <title>Eye Controlled Text Input</title>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-    #prompt { font-size: 24px; margin: 20px; }
-    #output { font-size: 20px; margin-top: 30px; }
-    #debug { text-align: left; margin-top: 30px; font-size: 14px; background: #f9f9f9; padding: 12px; border: 1px solid #ccc; border-radius: 8px; max-width: 720px; margin-left:auto; margin-right:auto; }
-    video { display: none; }
-    button { font-size: 18px; margin: 10px; padding: 10px 20px; }
-    .yesBtn { background-color: #4CAF50; color: white; }
-    .noBtn { background-color: #f44336; color: white; }
+    body { font-family: Arial, sans-serif; background: #222; color: #eee; text-align: center; }
+    #controls button { padding: 10px 20px; margin: 5px; border-radius: 8px; font-size: 16px; }
+    #yesBtn { background: #4CAF50; color: white; }
+    #noBtn { background: #f44336; color: white; }
+    #calibrateUpBtn { background: #2196F3; color: white; }
+    #calibrateDownBtn { background: #FF9800; color: white; }
+    #prediction { margin-top: 20px; font-size: 18px; }
+    #output { margin-top: 20px; font-size: 20px; font-weight: bold; }
+    #debug { margin-top: 20px; font-size: 14px; white-space: pre-line; background: #333; padding: 10px; border-radius: 10px; }
+    video { margin-top: 10px; border: 2px solid #555; border-radius: 8px; }
   </style>
 </head>
 <body>
-  <h2>Eye Typing Prototype (Eye + Buttons Test)</h2>
-  <div id="prompt">Look UP for 3 seconds to start</div>
-  <video id="video" autoplay playsinline></video>
-  <button class="yesBtn" onclick="yes()">YES (look up)</button>
-  <button class="noBtn" onclick="no()">NO (look down)</button>
-  <div id="output"></div>
-
-  <div id="debug">
-    <strong>Debug Info:</strong><br>
-    <pre id="debugLog"></pre>
+  <h1>Eye Controlled Text Input</h1>
+  <video id="video" width="320" height="240" autoplay muted></video>
+  <div id="controls">
+    <button id="yesBtn">Yes (Look Up)</button>
+    <button id="noBtn">No (Look Down)</button>
+    <button id="calibrateUpBtn">Calibrate Up</button>
+    <button id="calibrateDownBtn">Calibrate Down</button>
   </div>
+  <div id="prediction"></div>
+  <div id="output"></div>
+  <div id="debug"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh"></script>
+
   <script>
-    const vowels = ["A","E","I","O","U"];
-    const consonants = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
-    let dictionary = [];
+    const HOLD_FRAMES = 10; // number of frames look must be held
+    const COOLDOWN = 30;    // frames before another input can trigger
 
-    // Load words.txt dictionary
-    fetch("words.txt")
-      .then(r => r.text())
-      .then(text => {
-        dictionary = text.split(/\r?\n/).map(w => w.trim()).filter(Boolean);
-        logDebug("Dictionary loaded: " + dictionary.length + " words");
-      });
-
-    let sentence = "";
+    let words = [];
     let currentWord = "";
-    let step = "idle";
-    let letterIndex = 0;
-    let predictedNextLetter = null;
+    let currentSentence = "";
+    let predictions = [];
+    let lastAction = null;
+    let cooldownCounter = 0;
+
+    // Eye detection stability
+    let upCounter = 0, downCounter = 0, neutralCounter = 0;
+    let lastDirection = "NEUTRAL";
+
+    // Calibration values
+    let calibrateUpValue = null;
+    let calibrateDownValue = null;
+
+    // Debug info
+    function logDebug(msg) {
+      document.getElementById("debug").innerText += msg + "\n";
+    }
+
+    // Load dictionary
+    async function loadDictionary() {
+      try {
+        const res = await fetch("words.txt");
+        const text = await res.text();
+        words = text.split(/\r?\n/).filter(w => w.trim().length > 0);
+        logDebug(`Loaded ${words.length} words into dictionary`);
+      } catch (e) {
+        logDebug("Could not load dictionary: " + e);
+      }
+    }
+
+    // Update UI
+    function updateUI() {
+      document.getElementById("output").innerText =
+        `Sentence: ${currentSentence}\nWord: ${currentWord}`;
+      document.getElementById("prediction").innerText =
+        predictions.length > 0 ? "Predictions: " + predictions.join(", ") : "";
+    }
+
+    // Handle YES/NO input
+    function handleInput(isYes) {
+      if (cooldownCounter > 0) return;
+      cooldownCounter = COOLDOWN;
+
+      if (isYes) {
+        currentWord += predictions[0] || "";
+        logDebug("YES → added letter: " + (predictions[0] || ""));
+      } else {
+        predictions.shift();
+        logDebug("NO → skipping, next predictions: " + predictions.join(", "));
+      }
+
+      if (predictions.length === 0) {
+        // Word finished
+        currentSentence += currentWord + " ";
+        currentWord = "";
+        logDebug("Word committed. Sentence so far: " + currentSentence);
+        predictNext();
+      }
+
+      updateUI();
+    }
+
+    // Predict next letters
+    function predictNext() {
+      if (currentWord.length === 0) {
+        predictions = "tnshrdlcumwfgypbvkjxqz".split(""); // start letters
+      } else {
+        const candidates = words.filter(w => w.startsWith(currentWord.toLowerCase()));
+        const nextLetters = new Set();
+        for (let w of candidates) {
+          if (w.length > currentWord.length) {
+            nextLetters.add(w[currentWord.length]);
+          }
+        }
+        predictions = [...nextLetters];
+        if (predictions.length === 0) {
+          predictions = ["?"];
+        }
+      }
+      logDebug("Predictions: " + predictions.join(", "));
+      updateUI();
+    }
 
     // Eye detection setup
-    const video = document.getElementById("video");
-    let upCounter = 0, downCounter = 0, frameThreshold = 15;
-
-    Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri("https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/"),
-      faceapi.nets.faceLandmark68TinyNet.loadFromUri("https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/")
-    ]).then(startVideo);
-
-    function startVideo() {
-      navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
-        video.srcObject = stream;
+    async function setupCamera() {
+      const video = document.getElementById("video");
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+      return new Promise(resolve => {
+        video.onloadedmetadata = () => resolve(video);
       });
     }
 
-    video.addEventListener("play", () => {
-      logDebug("Face detection started.");
-      const interval = setInterval(async () => {
-        const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks(true);
-        if (detections) {
-          const landmarks = detections.landmarks;
-          const leftEye = landmarks.getLeftEye();
-          const rightEye = landmarks.getRightEye();
+    function detectDirection(delta) {
+      if (calibrateUpValue === null || calibrateDownValue === null) return "NEUTRAL";
+      const mid = (calibrateUpValue + calibrateDownValue) / 2;
+      if (delta < mid) return "UP";
+      if (delta > mid) return "DOWN";
+      return "NEUTRAL";
+    }
 
-          let avgY = (leftEye[1].y + rightEye[1].y) / 2;
+    async function runFaceMesh() {
+      const video = await setupCamera();
+      const model = await facemesh.load();
 
-          if (avgY < landmarks.positions[27].y - 10) { // look up
-            upCounter++;
-            downCounter = 0;
-            logDebug("Looking UP (" + upCounter + " frames)");
-            if (upCounter > frameThreshold) {
-              yes();
-              upCounter = 0;
-            }
-          } else if (avgY > landmarks.positions[27].y + 10) { // look down
-            downCounter++;
-            upCounter = 0;
-            logDebug("Looking DOWN (" + downCounter + " frames)");
-            if (downCounter > frameThreshold) {
-              no();
-              downCounter = 0;
-            }
+      async function frameLoop() {
+        cooldownCounter = Math.max(0, cooldownCounter - 1);
+
+        const predictionsMesh = await model.estimateFaces({ input: video });
+        if (predictionsMesh.length > 0) {
+          const keypoints = predictionsMesh[0].scaledMesh;
+          const eyeY = (keypoints[159][1] + keypoints[386][1]) / 2; // avg eyes
+          const noseY = keypoints[1][1]; // nose tip
+          const delta = noseY - eyeY;
+
+          const direction = detectDirection(delta);
+
+          // Count consecutive frames
+          if (direction === "UP") {
+            upCounter++; downCounter = 0; neutralCounter = 0;
+          } else if (direction === "DOWN") {
+            downCounter++; upCounter = 0; neutralCounter = 0;
           } else {
-            upCounter = 0;
-            downCounter = 0;
+            neutralCounter++; upCounter = 0; downCounter = 0;
           }
+
+          if (upCounter >= HOLD_FRAMES && lastDirection !== "UP") {
+            logDebug(`Detected UP for ${HOLD_FRAMES} frames → YES`);
+            handleInput(true);
+            lastDirection = "UP";
+          } else if (downCounter >= HOLD_FRAMES && lastDirection !== "DOWN") {
+            logDebug(`Detected DOWN for ${HOLD_FRAMES} frames → NO`);
+            handleInput(false);
+            lastDirection = "DOWN";
+          } else if (neutralCounter >= HOLD_FRAMES) {
+            lastDirection = "NEUTRAL";
+          }
+
+          logDebug(`delta=${delta.toFixed(2)}, direction=${direction}`);
+        } else {
+          logDebug("No face detected");
         }
-      }, 100);
+
+        requestAnimationFrame(frameLoop);
+      }
+
+      frameLoop();
+    }
+
+    // Event listeners for manual testing
+    document.getElementById("yesBtn").onclick = () => handleInput(true);
+    document.getElementById("noBtn").onclick = () => handleInput(false);
+    document.getElementById("calibrateUpBtn").onclick = () => {
+      calibrateUpValue = parseFloat(prompt("Look UP and enter delta value shown in debug:"));
+      logDebug("Calibrated UP value = " + calibrateUpValue);
+    };
+    document.getElementById("calibrateDownBtn").onclick = () => {
+      calibrateDownValue = parseFloat(prompt("Look DOWN and enter delta value shown in debug:"));
+      logDebug("Calibrated DOWN value = " + calibrateDownValue);
+    };
+
+    // Initialize
+    loadDictionary().then(() => {
+      predictNext();
+      runFaceMesh();
     });
-
-    // Flow functions
-    function yes() {
-      if (step === "idle") {
-        step = "askVowel";
-        updatePrompt("Does it start with a vowel? (YES=Up, NO=Down)");
-      } else if (step === "askVowel") {
-        step = "vowel";
-        letterIndex = 0;
-        showNextLetter();
-      } else if (step === "consonant" || step === "vowel") {
-        addLetter(step === "vowel" ? vowels[letterIndex] : consonants[letterIndex]);
-      } else if (step === "predictLetter") {
-        addLetter(predictedNextLetter);
-        predictedNextLetter = null;
-      } else if (step === "askNextWord") {
-        sentence += currentWord + " ";
-        currentWord = "";
-        step = "askVowel";
-        updateOutput();
-        updatePrompt("Next word: Does it start with a vowel?");
-      }
-      logDebug("YES pressed in state: " + step);
-    }
-
-    function no() {
-      if (step === "askVowel") {
-        step = "consonant";
-        letterIndex = 0;
-        showNextLetter();
-      } else if (step === "consonant" || step === "vowel") {
-        letterIndex++;
-        showNextLetter();
-      } else if (step === "predictLetter") {
-        predictedNextLetter = null;
-        step = "askVowel";
-        updatePrompt("Is it a vowel? (YES/NO)");
-      } else if (step === "askNextWord") {
-        speakSentence();
-        resetAll();
-      }
-      logDebug("NO pressed in state: " + step);
-    }
-
-    function showNextLetter() {
-      let list = (step === "consonant") ? consonants : vowels;
-      if (letterIndex < list.length) {
-        updatePrompt("Letter: " + list[letterIndex] + " ? (YES/NO)");
-      } else {
-        step = "askVowel";
-        updatePrompt("Restart letter selection? Vowel?");
-      }
-    }
-
-    function addLetter(letter) {
-      currentWord += letter;
-      updateOutput();
-
-      if (dictionary.includes(currentWord.toLowerCase())) {
-        step = "askNextWord";
-        updatePrompt("Word is '" + currentWord + "'. Next word?");
-        return;
-      }
-
-      // Prediction
-      let possible = dictionary.filter(w => w.startsWith(currentWord.toLowerCase()));
-      if (possible.length > 0) {
-        let nextLetters = {};
-        for (let w of possible) {
-          if (w.length > currentWord.length) {
-            let next = w[currentWord.length].toUpperCase();
-            nextLetters[next] = (nextLetters[next] || 0) + 1;
-          }
-        }
-        let best = Object.entries(nextLetters).sort((a, b) => b[1] - a[1])[0];
-        if (best) {
-          predictedNextLetter = best[0];
-          step = "predictLetter";
-          updatePrompt("Predict: Is next letter '" + predictedNextLetter + "'?");
-          return;
-        }
-      }
-
-      step = "askVowel";
-      updatePrompt("Is it a vowel? (YES/NO)");
-    }
-
-    function updatePrompt(text) {
-      document.getElementById("prompt").innerText = text;
-      updateDebug();
-    }
-
-    function updateOutput() {
-      document.getElementById("output").innerText = "Current: " + sentence + currentWord;
-      updateDebug();
-    }
-
-    function resetAll() {
-      sentence = "";
-      currentWord = "";
-      step = "idle";
-      updatePrompt("Look UP for 3 seconds to start");
-      updateOutput();
-      logDebug("System reset");
-    }
-
-    function speakSentence() {
-      const utterance = new SpeechSynthesisUtterance(sentence.trim());
-      speechSynthesis.speak(utterance);
-      logDebug("Speaking: " + sentence.trim());
-    }
-
-    // Debugging functions
-    function logDebug(msg) {
-      const log = document.getElementById("debugLog");
-      log.textContent += msg + "\n";
-      log.scrollTop = log.scrollHeight;
-    }
-
-    function updateDebug() {
-      logDebug("[STATE] step=" + step + " | sentence='" + sentence.trim() + "' | currentWord='" + currentWord + "'");
-    }
   </script>
 </body>
 </html>
+
+
