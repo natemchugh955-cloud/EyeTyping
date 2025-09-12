@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Eye Typing Prototype (Large Dictionary)</title>
+  <title>Eye Typing Prototype (Large Dictionary + Predictive Text)</title>
   <style>
     body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
     #prompt { font-size: 24px; margin: 20px; }
@@ -27,7 +27,10 @@
     let currentWord = "";
     let step = "idle"; 
     let letterIndex = 0;
-    let predictedNextLetter = null;
+
+    // Predictive text variables
+    let predictedNextLetters = [];
+    let predictedIndex = 0;
 
     async function loadDictionary(){
       try {
@@ -106,40 +109,65 @@
     function addLetter(letter){
       currentWord += letter;
       updateOutput();
-
       let lowerWord = currentWord.toLowerCase();
 
       // Check if current word is a full word
       if(dictionary.includes(lowerWord)){
         step = "askNextWord";
         updatePrompt("Word is '" + currentWord + "'. Next word? (YES/NO)");
-        predictedNextLetter = null;
+        predictedNextLetters = [];
+        predictedIndex = 0;
         return;
       }
 
-      // Predict next letter dynamically
+      // Predict next letters dynamically
       let possible = dictionary.filter(w => w.startsWith(lowerWord));
       if(possible.length > 0){
-        let nextLetters = {};
+        let nextLettersFreq = {};
         for(let w of possible){
           if(w.length > lowerWord.length){
             let next = w[lowerWord.length].toUpperCase();
-            nextLetters[next] = (nextLetters[next] || 0) + 1;
+            nextLettersFreq[next] = (nextLettersFreq[next] || 0) + 1;
           }
         }
-        let best = Object.entries(nextLetters).sort((a,b) => b[1]-a[1])[0];
-        if(best){
-          predictedNextLetter = best[0];
+
+        // Top 5 predicted letters
+        predictedNextLetters = Object.entries(nextLettersFreq)
+          .sort((a,b)=>b[1]-a[1])
+          .slice(0,5)
+          .map(e=>e[0]);
+
+        if(predictedNextLetters.length > 0){
+          predictedIndex = 0;
           step = "predictLetter";
-          updatePrompt("Is next letter '" + predictedNextLetter + "'? (YES/NO)");
+          updatePrompt("Is next letter '" + predictedNextLetters[predictedIndex] + "'? (YES/NO)\nTop predictions: " + predictedNextLetters.join(", "));
           return;
         }
       }
 
-      // If no prediction, restart vowel/consonant
+      // If no prediction, fallback to vowel/consonant loop
       step = "askVowel";
       letterIndex = 0;
       updatePrompt("Is it a vowel? (YES/NO)");
+    }
+
+    function yesPrediction(){
+      addLetter(predictedNextLetters[predictedIndex]);
+      predictedNextLetters = [];
+      predictedIndex = 0;
+    }
+
+    function noPrediction(){
+      predictedIndex++;
+      if(predictedIndex < predictedNextLetters.length){
+        updatePrompt("Is next letter '" + predictedNextLetters[predictedIndex] + "'? (YES/NO)\nTop predictions: " + predictedNextLetters.join(", "));
+      } else {
+        predictedNextLetters = [];
+        predictedIndex = 0;
+        step = "askVowel";
+        letterIndex = 0;
+        updatePrompt("Is it a vowel? (YES/NO)");
+      }
     }
 
     function updatePrompt(text){
@@ -150,22 +178,11 @@
       document.getElementById("output").innerText = "Current: " + sentence + currentWord;
     }
 
-    function yesPrediction(){
-      addLetter(predictedNextLetter);
-      predictedNextLetter = null;
-    }
-
-    function noPrediction(){
-      predictedNextLetter = null;
-      step = "askVowel";
-      letterIndex = 0;
-      updatePrompt("Is it a vowel? (YES/NO)");
-    }
-
     loadDictionary();
   </script>
 </body>
 </html>
+
 
 
 
