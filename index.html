@@ -85,7 +85,7 @@
             return;
           }
 
-          // get predictions for next letter
+          // propose next letters dynamically
           proposeNextLetters();
         } else {
           letterIndex++;
@@ -111,8 +111,19 @@
       }
     }
 
+    function askNextLetter() {
+      if (letterIndex < nextLetters.length) {
+        document.getElementById("prompt").innerText = `Is the next letter "${nextLetters[letterIndex]}"?`;
+        document.getElementById("prediction").innerText = "Predicted letters: " + nextLetters.join(", ");
+      } else {
+        document.getElementById("prompt").innerText = "⚠️ No valid letters left.";
+        document.getElementById("prediction").innerText = "";
+        step = "idle";
+      }
+    }
+
     function proposeNextLetters() {
-      // gather next letters from candidates
+      // dynamically predict next letters from remaining candidates
       let freq = {};
       for (let w of candidateWords) {
         if (w.startsWith(currentWord) && w.length > currentWord.length) {
@@ -121,26 +132,26 @@
         }
       }
 
-      let predicted = Object.entries(freq).sort((a,b) => b[1]-a[1]).map(e=>e[0]);
+      let predicted = Object.entries(freq)
+        .sort((a,b) => b[1]-a[1])
+        .map(e=>e[0]);
 
-      // Use fixed order if starting new word (consonants) or vowel order
+      // after first letter, use dynamic prediction
       if (currentWord.length === 0) {
-        nextLetters = predicted.filter(l => vowels.includes(l));
-        nextLetters = nextLetters.length > 0 ? nextLetters : consonantOrder.slice();
+        // first letter, use fixed order (consonants or vowels)
+        nextLetters = nextLetters.slice(); // keep the full initial order
       } else {
         nextLetters = predicted.length > 0 ? predicted : consonantOrder.slice();
       }
 
       letterIndex = 0;
-      document.getElementById("prompt").innerText = `Is the next letter "${nextLetters[letterIndex]}"?`;
-      document.getElementById("prediction").innerText = "Predicted letters: " + nextLetters.join(", ");
+      askNextLetter();
     }
 
     loadDictionary();
   </script>
 </body>
 </html>
-
 
 
 
