@@ -2,35 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Eye-Yes/No Communication</title>
+  <title>Word Prediction Prototype</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      text-align: center;
-      margin: 20px;
-    }
-    #prompt {
-      font-size: 1.5em;
-      margin: 20px;
-    }
-    #output {
-      font-size: 1.2em;
-      margin: 10px;
-      padding: 10px;
-      border: 1px solid #ccc;
-      min-height: 40px;
-    }
-    button {
-      font-size: 1.5em;
-      margin: 10px;
-      padding: 10px 30px;
-    }
+    body { font-family: Arial; text-align: center; margin: 20px; }
+    #prompt { font-size: 1.5em; margin: 20px; }
+    #output { font-size: 1.2em; margin: 10px; padding: 10px; border: 1px solid #ccc; min-height: 40px; }
+    #prediction { font-size: 1em; color: blue; margin: 10px; }
+    button { font-size: 1.5em; margin: 10px; padding: 10px 30px; }
   </style>
 </head>
 <body>
-  <h1>Eye Communication Prototype</h1>
+  <h1>Word Prediction Prototype</h1>
   <div id="prompt">Press Start to begin</div>
   <div id="output"></div>
+  <div id="prediction"></div>
   <button onclick="start()">Start</button><br>
   <button onclick="respond(true)">Yes</button>
   <button onclick="respond(false)">No</button>
@@ -42,6 +27,9 @@
     let step = "idle";
     let nextLetters = [];
     let letterIndex = 0;
+
+    const vowels = ["a","e","i","o","u"];
+    const consonantOrder = ["t","n","s","h","r","d","l","c","m","w","f","g","y","p","b","v","j","k","x","q","z"];
 
     async function loadDictionary() {
       try {
@@ -59,25 +47,24 @@
       candidateWords = dictionary.slice();
       step = "vowelStart";
       document.getElementById("output").innerText = "";
+      document.getElementById("prediction").innerText = "";
       document.getElementById("prompt").innerText = "Does the word start with a vowel?";
     }
 
     function respond(answer) {
       if (step === "vowelStart") {
         if (answer) {
-          candidateWords = candidateWords.filter(w => /^[aeiou]/.test(w));
+          candidateWords = candidateWords.filter(w => vowels.includes(w[0]));
+          nextLetters = vowels.slice();
         } else {
-          candidateWords = candidateWords.filter(w => /^[^aeiou]/.test(w));
+          candidateWords = candidateWords.filter(w => !vowels.includes(w[0]));
+          nextLetters = consonantOrder.slice();
         }
-        if (candidateWords.length === 0) {
-          document.getElementById("prompt").innerText = "⚠️ No words found.";
-          return;
-        }
+        letterIndex = 0;
         step = "letterChoice";
-        proposeNextLetters();
+        askNextLetter();
       } else if (step === "letterChoice") {
         if (answer) {
-          // accept current letter
           let chosen = nextLetters[letterIndex];
           currentWord += chosen;
           candidateWords = candidateWords.filter(w => w.startsWith(currentWord));
@@ -86,6 +73,7 @@
           if (candidateWords.length === 0) {
             document.getElementById("prompt").innerText = "⚠️ Word not found in dictionary.";
             step = "idle";
+            document.getElementById("prediction").innerText = "";
             return;
           }
 
@@ -93,16 +81,18 @@
           if (candidateWords.includes(currentWord)) {
             step = "nextWordPrompt";
             document.getElementById("prompt").innerText = `Word recognized: "${currentWord}". Next word?`;
+            document.getElementById("prediction").innerText = "";
             return;
           }
-          // continue
+
+          // get predictions for next letter
           proposeNextLetters();
         } else {
-          // move to next candidate letter
           letterIndex++;
           if (letterIndex >= nextLetters.length) {
-            document.getElementById("prompt").innerText = "⚠️ No valid letters found.";
+            document.getElementById("prompt").innerText = "⚠️ No more valid letters.";
             step = "idle";
+            document.getElementById("prediction").innerText = "";
           } else {
             document.getElementById("prompt").innerText = `Is the next letter "${nextLetters[letterIndex]}"?`;
           }
@@ -122,31 +112,36 @@
     }
 
     function proposeNextLetters() {
-      // gather next possible letters from candidate words
-      let nextSet = {};
+      // gather next letters from candidates
+      let freq = {};
       for (let w of candidateWords) {
         if (w.startsWith(currentWord) && w.length > currentWord.length) {
           let nextChar = w[currentWord.length];
-          nextSet[nextChar] = (nextSet[nextChar] || 0) + 1;
+          freq[nextChar] = (freq[nextChar] || 0) + 1;
         }
       }
-      nextLetters = Object.entries(nextSet)
-        .sort((a,b) => b[1]-a[1])
-        .map(e => e[0]);
-      letterIndex = 0;
 
-      if (nextLetters.length === 0) {
-        document.getElementById("prompt").innerText = "⚠️ No possible next letters.";
-        step = "idle";
+      let predicted = Object.entries(freq).sort((a,b) => b[1]-a[1]).map(e=>e[0]);
+
+      // Use fixed order if starting new word (consonants) or vowel order
+      if (currentWord.length === 0) {
+        nextLetters = predicted.filter(l => vowels.includes(l));
+        nextLetters = nextLetters.length > 0 ? nextLetters : consonantOrder.slice();
       } else {
-        document.getElementById("prompt").innerText = `Is the next letter "${nextLetters[letterIndex]}"?`;
+        nextLetters = predicted.length > 0 ? predicted : consonantOrder.slice();
       }
+
+      letterIndex = 0;
+      document.getElementById("prompt").innerText = `Is the next letter "${nextLetters[letterIndex]}"?`;
+      document.getElementById("prediction").innerText = "Predicted letters: " + nextLetters.join(", ");
     }
 
     loadDictionary();
   </script>
 </body>
 </html>
+
+
 
 
 
