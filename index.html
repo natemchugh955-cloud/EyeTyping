@@ -9,7 +9,13 @@
   #prompt { font-size:22px; margin:14px 0; min-height:56px; }
   #status { font-size:18px; color:#333; margin-top:6px; }
   #output { font-size:18px; margin-top:16px; word-break:break-word; }
-  button { font-size:18px; padding:10px 18px; margin:8px; }
+  button { font-size:18px; padding:10px 18px; margin:8px; border:none; border-radius:6px; cursor:pointer; transition:0.3s;}
+  #yesBtn { background-color:#4CAF50; color:white; }
+  #noBtn { background-color:#f44336; color:white; }
+  #startBtn { background-color:#2196F3; color:white; }
+  #resetBtn { background-color:#FF9800; color:white; }
+  #finishBtn { background-color:#9C27B0; color:white; }
+  button:hover { opacity:0.85; }
   .small { font-size:14px; color:#555; margin-top:6px; }
   #predictions { margin-top:10px; font-size:16px; color:#222; }
 </style>
@@ -23,26 +29,51 @@
     <button id="noBtn">NO (look down)</button>
     <button id="startBtn">START</button>
     <button id="resetBtn">RESET</button>
+    <button id="finishBtn">FINISH SENTENCE</button>
   </div>
 
   <div id="status" aria-live="polite"></div>
   <div id="output"></div>
   <div id="predictions"></div>
-  <div class="small">Flow: Start → "Is it a vowel?" → pick letter from vowel/consonant order. After every letter the system predicts a list of possible next letters (most-likely first). If the typed token is a full dictionary word it will ask "Next word?" automatically.</div>
+  <div class="small">
+    Flow: Start → "Is it a vowel?" → pick letter from vowel/consonant order. After every letter the system predicts a list of possible next letters (most-likely first). If the typed token is a full dictionary word it will ask "Next word?" automatically. New words can be added dynamically. Press "FINISH SENTENCE" to speak the sentence aloud.
+  </div>
 
 <script>
 /* ====== Configuration ====== */
 const vowels = ["A","E","I","O","U"];
 const consonants = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
 
+/* Built-in dictionary (expandable dynamically) */
+let dictionary = [
+  "a","i","the","to","and","it","is","in","you","that","he","was","for","on","are","with",
+  "as","i","his","they","be","at","one","have","this","from","or","had","by","hot","word",
+  "but","what","some","we","can","out","other","were","all","there","when","up","use","your",
+  "how","said","an","each","she","which","do","their","time","if","will","way","about","many",
+  "then","them","write","would","like","so","these","her","long","make","thing","see","him",
+  "two","has","look","more","day","could","go","come","did","number","sound","no","most",
+  "people","my","over","know","water","than","call","first","who","may","down","side","been",
+  "now","find","any","new","work","part","hello","hi","have","him","hit","hike","help","house",
+  "hope","happy","good","great","morning","night","drink","can","mary","tell","me","you","she",
+  "food","water","yes","no","please","thanks","thank","sorry","pain","help","doctor","nurse",
+  "hungry","thirsty","bathroom","sleep","cold","hot","hungry","need","want","stop","wait","okay",
+  "love","like","hate","go","come","sit","stand","walk","left","right","up","down","inside","outside",
+  "today","tomorrow","yesterday","now","later","again","already","please","thanks","bed","chair",
+  "doctor","pain","hurt","doctor","nurse","call","phone","family","music","movie","watch","read",
+  "yesplease","yessir","nope","maybe","fine","helpme","more","less","warm","cool"
+];
+
+// Load custom words from localStorage
+const storedWords = JSON.parse(localStorage.getItem("customWords") || "[]");
+dictionary = dictionary.concat(storedWords);
+
 /* ====== Runtime state ====== */
-let dictionary = [];
 let sentence = "";
 let currentWord = "";
-let step = "idle";           // idle | askStart | askVowel | vowel | consonant | predictLetter | askNextWord
-let letterIndex = 0;         // index into vowels/consonants when scanning
-let predictedLetters = [];   // ordered array of next-letter predictions (uppercase)
-let predictedIndex = 0;      // index into predictedLetters
+let step = "idle";           
+let letterIndex = 0;         
+let predictedLetters = [];   
+let predictedIndex = 0;      
 
 /* ====== DOM ====== */
 const promptEl = document.getElementById('prompt');
@@ -53,6 +84,7 @@ const yesBtn = document.getElementById('yesBtn');
 const noBtn = document.getElementById('noBtn');
 const startBtn = document.getElementById('startBtn');
 const resetBtn = document.getElementById('resetBtn');
+const finishBtn = document.getElementById('finishBtn');
 
 /* ====== Helpers ====== */
 function updatePrompt(t){ promptEl.innerText = t; }
@@ -73,7 +105,6 @@ function computePredictedLetters(prefix){
       freq[next] = (freq[next] || 0) + 1;
     }
   }
-  // sort by frequency desc, then alphabetically
   const arr = Object.entries(freq).sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(e => e[0]);
   return arr;
 }
@@ -81,6 +112,28 @@ function computePredictedLetters(prefix){
 /* check if prefix is exact word in dictionary */
 function isExactWord(prefix){
   return dictionary.includes(toLower(prefix));
+}
+
+/* add new word to dictionary */
+function addWordToDictionary(word){
+  word = word.toLowerCase();
+  if(!dictionary.includes(word)){
+    dictionary.push(word);
+    let customWords = JSON.parse(localStorage.getItem("customWords") || "[]");
+    customWords.push(word);
+    localStorage.setItem("customWords", JSON.stringify(customWords));
+    updateStatus(`Added new word "${word}" to dictionary.`);
+  }
+}
+
+/* speak sentence */
+function speakSentence(text){
+  if('speechSynthesis' in window){
+    const utterance = new SpeechSynthesisUtterance(text);
+    window.speechSynthesis.speak(utterance);
+  } else {
+    updateStatus("Speech synthesis not supported.");
+  }
 }
 
 /* ====== Core flows ====== */
@@ -115,7 +168,7 @@ function showNextLetter(){
     updatePrompt("Letter: " + list[letterIndex] + " ? (YES/NO)");
   } else {
     step = "askVowel";
-    updatePrompt("Is it a vowel? (YES for vowels, NO for consonants)");
+    updatePrompt("Reached end of list. Is it a vowel? (YES/NO)");
   }
 }
 
@@ -141,7 +194,6 @@ function addLetter(letter){
     updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
   } else {
     step = "askVowel";
-    letterIndex = 0;
     updatePrompt("No predictions. Is it a vowel? (YES/NO)");
   }
   updateOutput();
@@ -152,23 +204,19 @@ function handleYes(){
   switch(step){
     case "askStart":
       step = "askVowel";
-      updatePrompt("Is it a vowel? (YES for vowels, NO for consonants)");
+      updatePrompt("Is it a vowel? (YES/NO)");
       break;
-
     case "askVowel":
       step = "vowel";
       letterIndex = 0;
       showNextLetter();
       break;
-
     case "vowel":
       addLetter(vowels[letterIndex]);
       break;
-
     case "consonant":
       addLetter(consonants[letterIndex]);
       break;
-
     case "predictLetter":
       if(predictedLetters[predictedIndex]){
         addLetter(predictedLetters[predictedIndex]);
@@ -177,9 +225,11 @@ function handleYes(){
         updatePrompt("Prediction missing. Is it a vowel? (YES/NO)");
       }
       break;
-
     case "askNextWord":
       sentence += currentWord + " ";
+      if(!dictionary.includes(currentWord.toLowerCase())){
+        addWordToDictionary(currentWord);
+      }
       currentWord = "";
       predictedLetters = [];
       predictedIndex = 0;
@@ -187,7 +237,6 @@ function handleYes(){
       updatePrompt("Next word? (YES = vowel set, NO = consonant set)");
       updateOutput();
       break;
-
     default:
       updateStatus("Unhandled YES in state: " + step);
   }
@@ -200,19 +249,19 @@ function handleNo(){
       step = "idle";
       updatePrompt("Okay — not starting. Press START to try again.");
       break;
-
     case "askVowel":
       step = "consonant";
       letterIndex = 0;
       showNextLetter();
       break;
-
     case "vowel":
+      letterIndex++;
+      showNextLetter();
+      break;
     case "consonant":
       letterIndex++;
       showNextLetter();
       break;
-
     case "predictLetter":
       predictedIndex++;
       if(predictedIndex < predictedLetters.length){
@@ -224,7 +273,6 @@ function handleNo(){
         updatePrompt("No more predicted letters. Is it a vowel? (YES/NO)");
       }
       break;
-
     case "askNextWord":
       if(!predictedLetters || predictedLetters.length === 0){
         predictedLetters = computePredictedLetters(currentWord);
@@ -238,12 +286,27 @@ function handleNo(){
         updatePrompt("No predictions. Is it a vowel? (YES/NO)");
       }
       break;
-
     default:
       updateStatus("Unhandled NO in state: " + step);
   }
   updateOutput();
 }
+
+/* Finish sentence and speak */
+finishBtn.addEventListener('click', () => {
+  if(sentence.trim()){
+    speakSentence(sentence.trim());
+    updateStatus("Speaking sentence: " + sentence.trim());
+    sentence = "";
+    currentWord = "";
+    step = "idle";
+    predictedLetters = [];
+    predictedIndex = 0;
+    updateOutput();
+  } else {
+    updateStatus("No sentence to speak.");
+  }
+});
 
 /* event hookups */
 yesBtn.addEventListener('click', () => { handleYes(); });
@@ -251,25 +314,13 @@ noBtn.addEventListener('click', () => { handleNo(); });
 startBtn.addEventListener('click', () => { start(); });
 resetBtn.addEventListener('click', () => { resetAll(); });
 
-/* ====== Load large dictionary ====== */
-async function loadDictionary(){
-  try {
-    const resp = await fetch("words.txt");
-    const text = await resp.text();
-    dictionary = text.split(/\r?\n/).map(w => w.trim().toLowerCase()).filter(w => w);
-    console.log("Dictionary loaded:", dictionary.length, "words");
-  } catch(e){
-    console.error("Error loading dictionary:", e);
-    dictionary = ["a","i","the","to","and","it","is","in","you","hello","hi"]; // fallback
-  }
-}
-
-/* Initialize */
+/* Initialize UI */
 resetAll();
-loadDictionary();
 </script>
 </body>
 </html>
+
+
 
 
 
