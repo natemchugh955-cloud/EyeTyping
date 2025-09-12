@@ -2,174 +2,196 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Eye Controlled Predictive Text</title>
+  <title>Eye Typing Prototype</title>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; background: #f4f4f4; }
-    #output { margin: 20px; font-size: 20px; font-weight: bold; }
-    button { font-size: 18px; padding: 10px 20px; margin: 10px; border-radius: 8px; cursor: pointer; }
-    #yesBtn { background: #4CAF50; color: white; }
-    #noBtn { background: #F44336; color: white; }
-    #predictions { margin: 20px; font-size: 16px; }
+    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+    #prompt { font-size: 24px; margin: 20px; }
+    #output { font-size: 20px; margin-top: 30px; }
     video { display: none; }
-    canvas { display: none; }
+    button { font-size: 18px; margin: 10px; padding: 10px 20px; }
+    .yesBtn { background-color: #4CAF50; color: white; }
+    .noBtn { background-color: #f44336; color: white; }
   </style>
 </head>
 <body>
-  <h1>Eye Controlled Predictive Text</h1>
-  <div id="output">Output: </div>
-  <div id="predictions">Predictions: </div>
-  <button id="yesBtn">YES (Look Up)</button>
-  <button id="noBtn">NO (Look Down)</button>
+  <h2>Eye Typing Prototype (Eye + Buttons Test)</h2>
+  <div id="prompt">Look UP for 3 seconds to start</div>
+  <video id="video" autoplay playsinline></video>
+  <button class="yesBtn" onclick="yes()">YES (look up)</button>
+  <button class="noBtn" onclick="no()">NO (look down)</button>
+  <div id="output"></div>
 
-  <video id="video" autoplay playsinline width="640" height="480"></video>
-  <canvas id="canvas" width="640" height="480"></canvas>
-
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
   <script>
-    // --- Predictive Text Setup ---
-    const dictionary = ["hi", "hello", "how", "are", "you", "cook", "dinner", "nick", "tell", "tree", "christmas", "presents"];
-    let currentWord = "";
-    let output = "";
-    let predictions = [];
-    let askingWordEnd = false;
+    const vowels = ["A","E","I","O","U"];
+    const consonants = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
+    let dictionary = [];
 
-    const outputDiv = document.getElementById("output");
-    const predictionsDiv = document.getElementById("predictions");
-
-    function updateDisplay() {
-      outputDiv.textContent = "Output: " + output + currentWord;
-      predictionsDiv.textContent = "Predictions: " + predictions.join(", ");
-    }
-
-    function predictNextLetters(prefix) {
-      let letters = new Set();
-      dictionary.forEach(word => {
-        if (word.startsWith(prefix) && word.length > prefix.length) {
-          letters.add(word[prefix.length]);
-        }
+    // Load words.txt dictionary
+    fetch("words.txt")
+      .then(r => r.text())
+      .then(text => {
+        dictionary = text.split(/\r?\n/).map(w => w.trim()).filter(Boolean);
+        console.log("Loaded", dictionary.length, "words into dictionary");
       });
-      return Array.from(letters);
+
+    let sentence = "";
+    let currentWord = "";
+    let step = "idle";
+    let letterIndex = 0;
+    let predictedNextLetter = null;
+
+    // Eye detection setup
+    const video = document.getElementById("video");
+    let upCounter = 0, downCounter = 0, frameThreshold = 15;
+
+    Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri("https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/"),
+      faceapi.nets.faceLandmark68TinyNet.loadFromUri("https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/")
+    ]).then(startVideo);
+
+    function startVideo() {
+      navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+        video.srcObject = stream;
+      });
     }
 
-    function nextPrediction() {
-      if (currentWord === "") {
-        predictions = ["t", "n", "s"]; // start letters cycle
-      } else {
-        predictions = predictNextLetters(currentWord);
-      }
-      if (predictions.length === 0 && currentWord !== "") {
-        // ask if this is the word
-        predictions = ["[END WORD?]"];
-        askingWordEnd = true;
-      } else {
-        askingWordEnd = false;
-      }
-      updateDisplay();
-    }
+    video.addEventListener("play", () => {
+      const interval = setInterval(async () => {
+        const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks(true);
+        if (detections) {
+          const landmarks = detections.landmarks;
+          const leftEye = landmarks.getLeftEye();
+          const rightEye = landmarks.getRightEye();
 
-    function confirmPrediction() {
-      if (askingWordEnd) {
-        output += currentWord + " ";
-        currentWord = "";
-        askingWordEnd = false;
+          let avgY = (leftEye[1].y + rightEye[1].y) / 2;
+          let avgX = (leftEye[0].x + rightEye[3].x) / 2;
 
-        // Ask if sentence should end
-        predictions = ["[END SENTENCE?]"];
-        askingWordEnd = "sentence";
-      } else if (askingWordEnd === "sentence") {
-        output = output.trim() + ". ";
-        currentWord = "";
-        askingWordEnd = false;
-        predictions = [];
-
-        // Speak sentence aloud
-        let utter = new SpeechSynthesisUtterance(output.trim());
-        speechSynthesis.speak(utter);
-      } else if (predictions.length > 0) {
-        currentWord += predictions[0];
-      }
-      nextPrediction();
-    }
-
-    function denyPrediction() {
-      if (askingWordEnd) {
-        predictions = [];
-        askingWordEnd = false;
-        nextPrediction();
-      } else if (predictions.length > 1) {
-        predictions.shift();
-      }
-      updateDisplay();
-    }
-
-    document.getElementById("yesBtn").addEventListener("click", confirmPrediction);
-    document.getElementById("noBtn").addEventListener("click", denyPrediction);
-
-    nextPrediction();
-
-    // --- Eye Tracking Setup with Frame Counter ---
-    const videoElement = document.getElementById("video");
-    const canvasElement = document.getElementById("canvas");
-    const canvasCtx = canvasElement.getContext("2d");
-
-    let lookingUpFrames = 0;
-    let lookingDownFrames = 0;
-    const REQUIRED_FRAMES = 10; // must look up/down for 10 frames in a row
-
-    function onResults(results) {
-      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-        const landmarks = results.multiFaceLandmarks[0];
-
-        // Eyes: use average Y of top vs bottom of face
-        const leftEye = landmarks[159]; // upper eyelid
-        const rightEye = landmarks[386];
-        const nose = landmarks[1];
-
-        const eyeY = (leftEye.y + rightEye.y) / 2;
-        const noseY = nose.y;
-
-        if (eyeY < noseY - 0.05) {
-          lookingUpFrames++;
-          lookingDownFrames = 0;
-          if (lookingUpFrames >= REQUIRED_FRAMES) {
-            confirmPrediction();
-            lookingUpFrames = 0;
+          if (avgY < landmarks.positions[27].y - 10) { // look up
+            upCounter++;
+            downCounter = 0;
+            if (upCounter > frameThreshold) {
+              yes();
+              upCounter = 0;
+            }
+          } else if (avgY > landmarks.positions[27].y + 10) { // look down
+            downCounter++;
+            upCounter = 0;
+            if (downCounter > frameThreshold) {
+              no();
+              downCounter = 0;
+            }
           }
-        } else if (eyeY > noseY + 0.05) {
-          lookingDownFrames++;
-          lookingUpFrames = 0;
-          if (lookingDownFrames >= REQUIRED_FRAMES) {
-            denyPrediction();
-            lookingDownFrames = 0;
+        }
+      }, 100);
+    });
+
+    // Flow functions
+    function yes() {
+      if (step === "idle") {
+        step = "askVowel";
+        updatePrompt("Does it start with a vowel? (YES=Up, NO=Down)");
+      } else if (step === "askVowel") {
+        step = "vowel";
+        letterIndex = 0;
+        showNextLetter();
+      } else if (step === "consonant" || step === "vowel") {
+        addLetter(step === "vowel" ? vowels[letterIndex] : consonants[letterIndex]);
+      } else if (step === "predictLetter") {
+        addLetter(predictedNextLetter);
+        predictedNextLetter = null;
+      } else if (step === "askNextWord") {
+        sentence += currentWord + " ";
+        currentWord = "";
+        step = "askVowel";
+        updateOutput();
+        updatePrompt("Next word: Does it start with a vowel?");
+      }
+    }
+
+    function no() {
+      if (step === "askVowel") {
+        step = "consonant";
+        letterIndex = 0;
+        showNextLetter();
+      } else if (step === "consonant" || step === "vowel") {
+        letterIndex++;
+        showNextLetter();
+      } else if (step === "predictLetter") {
+        predictedNextLetter = null;
+        step = "askVowel";
+        updatePrompt("Is it a vowel? (YES/NO)");
+      } else if (step === "askNextWord") {
+        speakSentence();
+        resetAll();
+      }
+    }
+
+    function showNextLetter() {
+      let list = (step === "consonant") ? consonants : vowels;
+      if (letterIndex < list.length) {
+        updatePrompt("Letter: " + list[letterIndex] + " ? (YES/NO)");
+      } else {
+        step = "askVowel";
+        updatePrompt("Restart letter selection? Vowel?");
+      }
+    }
+
+    function addLetter(letter) {
+      currentWord += letter;
+      updateOutput();
+
+      if (dictionary.includes(currentWord.toLowerCase())) {
+        step = "askNextWord";
+        updatePrompt("Word is '" + currentWord + "'. Next word?");
+        return;
+      }
+
+      // Prediction
+      let possible = dictionary.filter(w => w.startsWith(currentWord.toLowerCase()));
+      if (possible.length > 0) {
+        let nextLetters = {};
+        for (let w of possible) {
+          if (w.length > currentWord.length) {
+            let next = w[currentWord.length].toUpperCase();
+            nextLetters[next] = (nextLetters[next] || 0) + 1;
           }
-        } else {
-          lookingUpFrames = 0;
-          lookingDownFrames = 0;
+        }
+        let best = Object.entries(nextLetters).sort((a, b) => b[1] - a[1])[0];
+        if (best) {
+          predictedNextLetter = best[0];
+          step = "predictLetter";
+          updatePrompt("Predict: Is next letter '" + predictedNextLetter + "'?");
+          return;
         }
       }
+
+      step = "askVowel";
+      updatePrompt("Is it a vowel? (YES/NO)");
     }
 
-    const faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
-    faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-    faceMesh.onResults(onResults);
+    function updatePrompt(text) {
+      document.getElementById("prompt").innerText = text;
+    }
 
-    const camera = new Camera(videoElement, {
-      onFrame: async () => { await faceMesh.send({image: videoElement}); },
-      width: 640, height: 480
-    });
-    camera.start();
+    function updateOutput() {
+      document.getElementById("output").innerText = "Current: " + sentence + currentWord;
+    }
+
+    function resetAll() {
+      sentence = "";
+      currentWord = "";
+      step = "idle";
+      updatePrompt("Look UP for 3 seconds to start");
+      updateOutput();
+    }
+
+    function speakSentence() {
+      const utterance = new SpeechSynthesisUtterance(sentence.trim());
+      speechSynthesis.speak(utterance);
+    }
   </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
 
 
