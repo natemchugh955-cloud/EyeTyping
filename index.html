@@ -35,8 +35,10 @@
       try {
         const response = await fetch("words.txt");
         const text = await response.text();
-        dictionary = text.split(/\r?\n/).map(w => w.trim().toLowerCase()).filter(w => w);
-        console.log(`Loaded ${dictionary.length} words into dictionary`);
+        dictionary = text.split(/\r?\n/)
+          .map(w => w.trim().toLowerCase())
+          .filter(w => w && w.length <= 20); // limit length for sanity
+        console.log(`Loaded ${dictionary.length} words`);
       } catch (err) {
         console.error("Error loading dictionary:", err);
       }
@@ -71,13 +73,12 @@
           document.getElementById("output").innerText = currentWord;
 
           if (candidateWords.length === 0) {
-            document.getElementById("prompt").innerText = "⚠️ Word not found in dictionary.";
-            step = "idle";
-            document.getElementById("prediction").innerText = "";
+            document.getElementById("prompt").innerText = `⚠️ No words match "${currentWord}" exactly, but you can continue spelling.`;
+            proposeNextLetters(); // allow continuing
             return;
           }
 
-          // check if complete word
+          // If any word matches exactly, ask "Next word?"
           if (candidateWords.includes(currentWord)) {
             step = "nextWordPrompt";
             document.getElementById("prompt").innerText = `Word recognized: "${currentWord}". Next word?`;
@@ -85,8 +86,7 @@
             return;
           }
 
-          // propose next letters dynamically
-          proposeNextLetters();
+          proposeNextLetters(); // predict next letters dynamically
         } else {
           letterIndex++;
           if (letterIndex >= nextLetters.length) {
@@ -123,7 +123,6 @@
     }
 
     function proposeNextLetters() {
-      // dynamically predict next letters from remaining candidates
       let freq = {};
       for (let w of candidateWords) {
         if (w.startsWith(currentWord) && w.length > currentWord.length) {
@@ -136,10 +135,10 @@
         .sort((a,b) => b[1]-a[1])
         .map(e=>e[0]);
 
-      // after first letter, use dynamic prediction
+      // Use fixed order for first letter of new word
       if (currentWord.length === 0) {
-        // first letter, use fixed order (consonants or vowels)
-        nextLetters = nextLetters.slice(); // keep the full initial order
+        // still ask consonants in order if not vowel
+        nextLetters = nextLetters.slice();
       } else {
         nextLetters = predicted.length > 0 ? predicted : consonantOrder.slice();
       }
