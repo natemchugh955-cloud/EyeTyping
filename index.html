@@ -1,213 +1,652 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Eye Controlled Text Input</title>
-  <style>
-    body { font-family: Arial, sans-serif; background: #222; color: #eee; text-align: center; }
-    #controls button { padding: 10px 20px; margin: 5px; border-radius: 8px; font-size: 16px; }
-    #yesBtn { background: #4CAF50; color: white; }
-    #noBtn { background: #f44336; color: white; }
-    #calibrateUpBtn { background: #2196F3; color: white; }
-    #calibrateDownBtn { background: #FF9800; color: white; }
-    #prediction { margin-top: 20px; font-size: 18px; }
-    #output { margin-top: 20px; font-size: 20px; font-weight: bold; }
-    #debug { margin-top: 20px; font-size: 14px; white-space: pre-line; background: #333; padding: 10px; border-radius: 10px; }
-    video { margin-top: 10px; border: 2px solid #555; border-radius: 8px; }
-  </style>
+<meta charset="utf-8" />
+<title>Eye Typing with Eye Detection</title>
+<style>
+  body { font-family: Arial, sans-serif; text-align:center; padding:18px; max-width:900px; margin:auto;}
+  h1 { font-size:20px; margin-bottom:6px; }
+  #prompt { font-size:20px; margin:12px 0; min-height:56px; }
+  #status { font-size:14px; color:#333; margin-top:6px; }
+  #output { font-size:16px; margin-top:12px; word-break:break-word; }
+  button { font-size:16px; padding:8px 14px; margin:6px; border:none; border-radius:6px; cursor:pointer; transition:0.15s;}
+  #yesBtn { background:#28a745; color:#fff; }
+  #noBtn { background:#dc3545; color:#fff; }
+  #startBtn { background:#007bff; color:#fff; }
+  #resetBtn { background:#ff9800; color:#fff; }
+  #finishBtn { background:#6f42c1; color:#fff; }
+  .calib { background:#444; color:#fff; }
+  #predictions { margin-top:8px; font-size:15px; color:#222; }
+  #webcam { display:none; width:320px; height:240px; border-radius:6px; }
+  #detectorStatus { margin-top:8px; font-size:14px; font-weight:600; }
+  .indicator { display:inline-block; width:12px; height:12px; border-radius:50%; margin-left:8px; vertical-align:middle; }
+  .green { background: #28a745; } .red { background:#dc3545; } .gray { background:#bbb; }
+  .small { font-size:13px; color:#555; margin-top:6px; }
+</style>
 </head>
 <body>
-  <h1>Eye Controlled Text Input</h1>
-  <video id="video" width="320" height="240" autoplay muted></video>
-  <div id="controls">
-    <button id="yesBtn">Yes (Look Up)</button>
-    <button id="noBtn">No (Look Down)</button>
-    <button id="calibrateUpBtn">Calibrate Up</button>
-    <button id="calibrateDownBtn">Calibrate Down</button>
+  <h1>Eye Typing Prototype — Eye Detection</h1>
+  <div id="prompt">Press START to begin.</div>
+
+  <div>
+    <button id="yesBtn">YES (look up)</button>
+    <button id="noBtn">NO (look down)</button>
+    <button id="startBtn">START</button>
+    <button id="resetBtn">RESET</button>
+    <button id="finishBtn">FINISH SENTENCE</button>
   </div>
-  <div id="prediction"></div>
+
+  <div style="margin-top:8px;">
+    <button id="calUp" class="calib">Calibrate Up</button>
+    <button id="calDown" class="calib">Calibrate Down</button>
+    <span id="detectorStatus">Detector: <span id="detState">OFF</span> <span id="detIndicator" class="indicator gray"></span></span>
+  </div>
+
+  <div id="status" aria-live="polite"></div>
   <div id="output"></div>
-  <div id="debug"></div>
+  <div id="predictions"></div>
+  <div class="small">Use calibration before relying on eye control. To calibrate look up and press calibrate up, then look down and calibrate down. Buttons always work as a fallback.</div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh"></script>
+  <!-- Hidden webcam element used by MediaPipe -->
+  <video id="webcam" autoplay playsinline></video>
 
-  <script>
-    const HOLD_FRAMES = 10; // number of frames look must be held
-    const COOLDOWN = 30;    // frames before another input can trigger
+  <!-- MediaPipe FaceMesh + Camera Utils -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
-    let words = [];
-    let currentWord = "";
-    let currentSentence = "";
-    let predictions = [];
-    let lastAction = null;
-    let cooldownCounter = 0;
+<script>
+/* ========= Your existing predictive-letter prototype (kept behavior) ========= */
 
-    // Eye detection stability
-    let upCounter = 0, downCounter = 0, neutralCounter = 0;
-    let lastDirection = "NEUTRAL";
+/* Configuration */
+const vowels = ["A","E","I","O","U"];
+const consonants = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
 
-    // Calibration values
-    let calibrateUpValue = null;
-    let calibrateDownValue = null;
+/* Built-in dictionary fallback; will be extended/overwritten by words.txt if present */
+let dictionary = [
+  "a","i","the","to","and","it","is","in","you","that","he","was","for","on","are","with",
+  "as","i","his","they","be","at","one","have","this","from","or","had","by","hot","word",
+  "but","what","some","we","can","out","other","were","all","there","when","up","use","your",
+  "how","said","an","each","she","which","do","their","time","if","will","way","about","many",
+  "then","them","write","would","like","so","these","her","long","make","thing","see","him",
+  "two","has","look","more","day","could","go","come","did","number","sound","no","most",
+  "people","my","over","know","water","than","call","first","who","may","down","side","been",
+  "now","find","any","new","work","part","hello","hi","have","him","hit","hike","help","house",
+  "hope","happy","good","great","morning","night","drink","can","mary","tell","me","you","she",
+  "food","water","yes","no","please","thanks","thank","sorry","pain","help","doctor","nurse"
+];
+// append any stored custom words
+const stored = JSON.parse(localStorage.getItem("customWords") || "[]");
+dictionary = dictionary.concat(stored);
 
-    // Debug info
-    function logDebug(msg) {
-      document.getElementById("debug").innerText += msg + "\n";
+/* Runtime state */
+let sentence = "";
+let currentWord = "";
+let step = "idle";           // idle | askStart | askVowel | vowel | consonant | predictLetter | askNextWord
+let letterIndex = 0;
+let predictedLetters = [];
+let predictedIndex = 0;
+
+/* DOM */
+const promptEl = document.getElementById('prompt');
+const statusEl = document.getElementById('status');
+const outputEl = document.getElementById('output');
+const predsEl = document.getElementById('predictions');
+const yesBtn = document.getElementById('yesBtn');
+const noBtn = document.getElementById('noBtn');
+const startBtn = document.getElementById('startBtn');
+const resetBtn = document.getElementById('resetBtn');
+const finishBtn = document.getElementById('finishBtn');
+const calUpBtn = document.getElementById('calUp');
+const calDownBtn = document.getElementById('calDown');
+const detStateEl = document.getElementById('detState');
+const detIndicator = document.getElementById('detIndicator');
+
+/* Helpers */
+function updatePrompt(t){ promptEl.innerText = t; }
+function updateStatus(t){ statusEl.innerText = t; }
+function updateOutput(){
+  outputEl.innerHTML = `<strong>Sentence:</strong> ${sentence.trim()}<br/><strong>Current word:</strong> ${currentWord}`;
+  predsEl.innerHTML = predictedLetters.length ? `<strong>Predicted next letters:</strong> ${predictedLetters.join(', ')}` : '';
+}
+function toLower(s){ return s ? s.toLowerCase() : s; }
+
+/* compute predictions */
+function computePredictedLetters(prefix){
+  const p = toLower(prefix);
+  const freq = {};
+  for(const w of dictionary){
+    if(w.startsWith(p) && w.length > p.length){
+      const next = w[p.length].toUpperCase();
+      freq[next] = (freq[next] || 0) + 1;
     }
+  }
+  const arr = Object.entries(freq).sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(e => e[0]);
+  return arr;
+}
+function isExactWord(prefix){
+  return dictionary.includes(toLower(prefix));
+}
+function addWordToDictionary(word){
+  word = toLower(word);
+  if(!dictionary.includes(word)){
+    dictionary.push(word);
+    let custom = JSON.parse(localStorage.getItem("customWords") || "[]");
+    custom.push(word);
+    localStorage.setItem("customWords", JSON.stringify(custom));
+    updateStatus(`Added new word "${word}" to dictionary (saved locally).`);
+  }
+}
+function speakSentence(text){
+  if('speechSynthesis' in window){
+    const u = new SpeechSynthesisUtterance(text);
+    window.speechSynthesis.speak(u);
+  } else {
+    updateStatus("Speech synthesis not supported by browser.");
+  }
+}
 
-    // Load dictionary
-    async function loadDictionary() {
-      try {
-        const res = await fetch("words.txt");
-        const text = await res.text();
-        words = text.split(/\r?\n/).filter(w => w.trim().length > 0);
-        logDebug(`Loaded ${words.length} words into dictionary`);
-      } catch (e) {
-        logDebug("Could not load dictionary: " + e);
-      }
-    }
+/* Core flows (identical to your preferred code) */
+function start(){
+  sentence = "";
+  currentWord = "";
+  step = "askStart";
+  predictedLetters = [];
+  predictedIndex = 0;
+  letterIndex = 0;
+  updatePrompt("Start a new sentence? (YES to begin)");
+  updateStatus("");
+  updateOutput();
+}
+function resetAll(){
+  sentence = "";
+  currentWord = "";
+  step = "idle";
+  predictedLetters = [];
+  predictedIndex = 0;
+  letterIndex = 0;
+  updatePrompt("Press START to begin.");
+  updateStatus("Reset.");
+  updateOutput();
+}
+function showNextLetter(){
+  const list = (step === "vowel") ? vowels : (step === "consonant") ? consonants : [];
+  if(letterIndex < list.length){
+    updatePrompt("Letter: " + list[letterIndex] + " ? (YES/NO)");
+  } else {
+    step = "askVowel";
+    updatePrompt("Reached end of list. Is it a vowel? (YES/NO)");
+  }
+}
+function addLetter(letter){
+  currentWord += letter;
+  updateStatus("Added letter: " + letter);
+  updateOutput();
 
-    // Update UI
-    function updateUI() {
-      document.getElementById("output").innerText =
-        `Sentence: ${currentSentence}\nWord: ${currentWord}`;
-      document.getElementById("prediction").innerText =
-        predictions.length > 0 ? "Predictions: " + predictions.join(", ") : "";
-    }
+  if(isExactWord(currentWord)){
+    predictedLetters = computePredictedLetters(currentWord);
+    predictedIndex = 0;
+    step = "askNextWord";
+    updatePrompt(`Word is "${currentWord}". Next word? (YES to accept / NO to continue spelling)`);
+    updateOutput();
+    return;
+  }
 
-    // Handle YES/NO input
-    function handleInput(isYes) {
-      if (cooldownCounter > 0) return;
-      cooldownCounter = COOLDOWN;
+  predictedLetters = computePredictedLetters(currentWord);
+  predictedIndex = 0;
+  if(predictedLetters.length > 0){
+    step = "predictLetter";
+    updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
+  } else {
+    step = "askVowel";
+    updatePrompt("No predictions. Is it a vowel? (YES/NO)");
+  }
+  updateOutput();
+}
 
-      if (isYes) {
-        currentWord += predictions[0] || "";
-        logDebug("YES → added letter: " + (predictions[0] || ""));
+function handleYes(){
+  switch(step){
+    case "askStart":
+      step = "askVowel";
+      updatePrompt("Is it a vowel? (YES/NO)");
+      break;
+    case "askVowel":
+      step = "vowel";
+      letterIndex = 0;
+      showNextLetter();
+      break;
+    case "vowel":
+      addLetter(vowels[letterIndex]);
+      break;
+    case "consonant":
+      addLetter(consonants[letterIndex]);
+      break;
+    case "predictLetter":
+      if(predictedLetters[predictedIndex]){
+        addLetter(predictedLetters[predictedIndex]);
       } else {
-        predictions.shift();
-        logDebug("NO → skipping, next predictions: " + predictions.join(", "));
+        step = "askVowel";
+        updatePrompt("Prediction missing. Is it a vowel? (YES/NO)");
       }
-
-      if (predictions.length === 0) {
-        // Word finished
-        currentSentence += currentWord + " ";
-        currentWord = "";
-        logDebug("Word committed. Sentence so far: " + currentSentence);
-        predictNext();
+      break;
+    case "askNextWord":
+      sentence += currentWord + " ";
+      if(!dictionary.includes(currentWord.toLowerCase())){
+        addWordToDictionary(currentWord);
       }
+      currentWord = "";
+      predictedLetters = [];
+      predictedIndex = 0;
+      step = "askVowel";
+      updatePrompt("Next word? (YES = vowel set, NO = consonant set)");
+      updateOutput();
+      break;
+    default:
+      updateStatus("Unhandled YES in state: " + step);
+  }
+}
 
-      updateUI();
-    }
-
-    // Predict next letters
-    function predictNext() {
-      if (currentWord.length === 0) {
-        predictions = "tnshrdlcumwfgypbvkjxqz".split(""); // start letters
+function handleNo(){
+  switch(step){
+    case "askStart":
+      step = "idle";
+      updatePrompt("Okay — not starting. Press START to try again.");
+      break;
+    case "askVowel":
+      step = "consonant";
+      letterIndex = 0;
+      showNextLetter();
+      break;
+    case "vowel":
+    case "consonant":
+      letterIndex++;
+      showNextLetter();
+      break;
+    case "predictLetter":
+      predictedIndex++;
+      if(predictedIndex < predictedLetters.length){
+        updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
       } else {
-        const candidates = words.filter(w => w.startsWith(currentWord.toLowerCase()));
-        const nextLetters = new Set();
-        for (let w of candidates) {
-          if (w.length > currentWord.length) {
-            nextLetters.add(w[currentWord.length]);
+        predictedLetters = [];
+        predictedIndex = 0;
+        step = "askVowel";
+        updatePrompt("No more predicted letters. Is it a vowel? (YES/NO)");
+      }
+      break;
+    case "askNextWord":
+      if(!predictedLetters || predictedLetters.length === 0){
+        predictedLetters = computePredictedLetters(currentWord);
+        predictedIndex = 0;
+      }
+      if(predictedLetters.length > 0){
+        step = "predictLetter";
+        updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
+      } else {
+        step = "askVowel";
+        updatePrompt("No predictions. Is it a vowel? (YES/NO)");
+      }
+      break;
+    default:
+      updateStatus("Unhandled NO in state: " + step);
+  }
+  updateOutput();
+}
+
+/* Hook buttons */
+yesBtn.addEventListener('click', () => { handleYes(); });
+noBtn.addEventListener('click', () => { handleNo(); });
+startBtn.addEventListener('click', () => { start(); });
+resetBtn.addEventListener('click', () => { resetAll(); });
+finishBtn.addEventListener('click', () => {
+  if(sentence.trim()){
+    speakSentence(sentence.trim());
+    updateStatus("Speaking: " + sentence.trim());
+    sentence = "";
+    currentWord = "";
+    step = "idle";
+    predictedLetters = [];
+    predictedIndex = 0;
+    updateOutput();
+  } else {
+    updateStatus("No sentence to speak.");
+  }
+});
+
+/* ========= Dictionary loader (replace fallback if words.txt exists) ========= */
+(async function loadWordsFile(){
+  try {
+    const r = await fetch("words.txt");
+    if(!r.ok) throw new Error("no file");
+    const text = await r.text();
+    const words = text.split(/\r?\n/).map(s => s.trim().toLowerCase()).filter(Boolean);
+    // merge while keeping custom words
+    const custom = JSON.parse(localStorage.getItem("customWords") || "[]");
+    dictionary = words.concat(custom);
+    updateStatus("Loaded dictionary: " + dictionary.length + " words");
+    console.log("Loaded dictionary", dictionary.length);
+  } catch(e){
+    updateStatus("Using built-in dictionary (words.txt not found).");
+    console.warn("words.txt not loaded:", e);
+  }
+})();
+
+/* ========= Eye detection using MediaPipe FaceMesh =========
+   - This uses landmarks to find eye center vs nose tip
+   - It requires calibration: press Calibrate Up while looking up, Calibrate Down while looking down.
+   - After calibration, looking up triggers YES and looking down triggers NO.
+   - Debounce prevents repeated triggers.
+=============================================================================*/
+
+const videoElement = document.getElementById('webcam');
+let camera = null;
+let faceMesh = null;
+
+let calibUpVal = null;
+let calibDownVal = null;
+let detectorOn = false;
+let lastTriggerTime = 0;
+const TRIGGER_COOLDOWN = 900; // ms
+
+function setDetectorState(on){
+  detectorOn = on;
+  detStateEl.innerText = on ? "ON" : "OFF";
+  detIndicator.className = "indicator " + (on ? "green" : "gray");
+}
+
+/* Utility: compute y-offset between eye center and nose tip
+   We'll use landmarks indices known from MediaPipe:
+     - left upper lid ~ 159, left lower lid ~ 145
+     - right upper lid ~ 386, right lower ~ 374
+     - nose tip ~ 1 or 4 (use 1)
+   If iris/eye landmarks not present in this FaceMesh build, these indices still generally map.
+*/
+function computeEyeNoseDelta(landmarks){
+  // ensure required indices exist
+  if(!landmarks || landmarks.length < 400) return null;
+  const leftTop = landmarks[159];
+  const leftBottom = landmarks[145];
+  const rightTop = landmarks[386];
+  const rightBottom = landmarks[374];
+  const nose = landmarks[1] || landmarks[4];
+
+  if(!leftTop || !leftBottom || !rightTop || !rightBottom || !nose) return null;
+
+  const leftCenterY = (leftTop.y + leftBottom.y) / 2;
+  const rightCenterY = (rightTop.y + rightBottom.y) / 2;
+  const eyeCenterY = (leftCenterY + rightCenterY) / 2;
+  // landmarks use normalized coords (0..1). Lower on screen => larger y.
+  // We compute noseY - eyeCenterY so that positive means eyes are above nose (looking up).
+  const delta = nose.y - eyeCenterY;
+  return delta;
+}
+
+/* MediaPipe setup */
+async function initFaceMesh(){
+  faceMesh = new FaceMesh({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+  });
+  faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
+  });
+  faceMesh.onResults(onFaceMeshResults);
+
+  // setup camera feed
+  camera = new Camera(videoElement, {
+    onFrame: async () => { await faceMesh.send({image: videoElement}); },
+    width: 640,
+    height: 480
+  });
+}
+
+/* Called each frame with face landmarks (if detected) */
+function onFaceMeshResults(results){
+  if(!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0){
+    // no face
+    updateStatus("Face not detected");
+    return;
+  }
+  updateStatus("Face detected");
+  const landmarks = results.multiFaceLandmarks[0];
+  const delta = computeEyeNoseDelta(landmarks);
+  if(delta === null) return;
+  // show debug small value
+  // updateStatus(`delta: ${delta.toFixed(4)}`);
+
+  // if not calibrated, show hint
+  if(calibUpVal === null || calibDownVal === null){
+    detIndicator.className = "indicator gray";
+    detStateEl.innerText = "CALIBRATE";
+    return;
+  }
+
+  setDetectorState(true);
+
+  // Decide threshold: midpoint between up and down
+  const mid = (calibUpVal + calibDownVal) / 2;
+  const range = Math.abs(calibUpVal - calibDownVal);
+  // hysteresis: require delta to be beyond mid by a fraction of range
+  const upThresh = mid + (range * 0.15);
+  const downThresh = mid - (range * 0.15);
+
+  // Determine look direction
+  const now = Date.now();
+  if(delta > upThresh && (now - lastTriggerTime) > TRIGGER_COOLDOWN){
+    lastTriggerTime = now;
+    detIndicator.className = "indicator green";
+    detStateEl.innerText = "LOOK UP → YES";
+    // trigger YES action
+    handleYes();
+  } else if(delta < downThresh && (now - lastTriggerTime) > TRIGGER_COOLDOWN){
+    lastTriggerTime = now;
+    detIndicator.className = "indicator red";
+    detStateEl.innerText = "LOOK DOWN → NO";
+    // trigger NO action
+    handleNo();
+  } else {
+    // neutral
+    detIndicator.className = "indicator gray";
+    detStateEl.innerText = "IDLE";
+  }
+}
+
+/* Calibration handlers */
+calUpBtn.addEventListener('click', () => {
+  if(!faceMesh) { updateStatus("Start camera first (press START) to calibrate."); return; }
+  updateStatus("Calibrate Up: Please look UP at the camera for 2 seconds...");
+  // collect several frames average
+  collectDeltaSamples(20, 40).then(avg => {
+    calibUpVal = avg;
+    updateStatus(`Calibrated UP (value: ${avg.toFixed(4)})`);
+    if(calibDownVal !== null) detStateEl.innerText = "CALIBRATED";
+  }).catch(e => updateStatus("Calibration failed: " + e));
+});
+
+calDownBtn.addEventListener('click', () => {
+  if(!faceMesh) { updateStatus("Start camera first (press START) to calibrate."); return; }
+  updateStatus("Calibrate Down: Please look DOWN at the camera for 2 seconds...");
+  collectDeltaSamples(20, 40).then(avg => {
+    calibDownVal = avg;
+    updateStatus(`Calibrated DOWN (value: ${avg.toFixed(4)})`);
+    if(calibUpVal !== null) detStateEl.innerText = "CALIBRATED";
+  }).catch(e => updateStatus("Calibration failed: " + e));
+});
+
+/* Collect N samples and return average delta */
+function collectDeltaSamples(frameCount=20, intervalMs=60){
+  return new Promise((resolve, reject) => {
+    const samples = [];
+    let collected = 0;
+    const maxTries = frameCount * 5;
+    let tries = 0;
+    const t = setInterval(() => {
+      tries++;
+      if(!videoElement || videoElement.readyState < 2){
+        if(tries > maxTries) {
+          clearInterval(t); reject("camera not ready");
+        }
+        return;
+      }
+      // we can't access last faceMesh results directly here; but faceMesh processes frames and onFaceMeshResults runs,
+      // so we'll temporarily request landmarks by sending an image and reading the last results via a global var.
+      // Simpler: use an ad-hoc listener to capture the next results. We'll use a small promise wrapper.
+      // But to keep code simple, rely on computeEyeNoseDelta when onFaceMeshResults has been called recently.
+      // So here we rely on a small captured global value set by the last onFaceMeshResults call.
+      if(window.__lastFaceLandmarks){
+        const delta = computeEyeNoseDelta(window.__lastFaceLandmarks);
+        if(delta !== null){
+          samples.push(delta);
+          collected++;
+        }
+      }
+      if(collected >= frameCount || tries > maxTries){
+        clearInterval(t);
+        if(samples.length === 0) reject("no face samples");
+        else resolve(samples.reduce((a,b)=>a+b,0)/samples.length);
+      }
+    }, intervalMs);
+  });
+}
+
+/* We want onFaceMeshResults to also store the latest landmarks for calibration sampling */
+(function wrapOnFaceMeshResults(){
+  // We'll patch the earlier handler by wrapping to store global landmarks.
+  const original = onFaceMeshResults;
+  window.__lastFaceLandmarks = null;
+  window.onFaceMeshResults_original = original;
+  // redefine onFaceMeshResults to both store and call original logic
+  window.onFaceMeshResults = function(results){
+    if(results && results.multiFaceLandmarks && results.multiFaceLandmarks.length>0){
+      window.__lastFaceLandmarks = results.multiFaceLandmarks[0];
+    }
+    // call original function body defined earlier
+    // But original was declared above; to reuse it we call the wrapper below.
+  };
+  // We'll actually reassign below after faceMesh exists to ensure the correct handler runs.
+})();
+
+/* Start camera + face mesh on START */
+startBtn.addEventListener('click', async () => {
+  updateStatus("Starting camera and detector — please allow camera permission.");
+  // initialize FaceMesh & Camera if not done
+  try {
+    if(!faceMesh){
+      await initFaceMesh();
+      // now override faceMesh.onResults to call both our onFaceMeshResults and also set last landmarks
+      faceMesh.onResults((results) => {
+        // store landmarks globally for calibration
+        if(results && results.multiFaceLandmarks && results.multiFaceLandmarks.length>0){
+          window.__lastFaceLandmarks = results.multiFaceLandmarks[0];
+        } else {
+          window.__lastFaceLandmarks = null;
+        }
+        // call the main handler logic implemented earlier
+        // (we previously defined a function named onFaceMeshResults above; ensure it's available)
+        if(typeof onFaceMeshResults === 'function'){
+          // call the intended processing function as defined earlier in file
+          // The original onFaceMeshResults function body was declared earlier, so calling it here is correct.
+          // However we replaced the global earlier; to avoid confusion, call the stored original if exists:
+          if(window.onFaceMeshResults_original) {
+            window.onFaceMeshResults_original(results);
+          } else {
+            // fallback: call local handler if present
+            try { /* no-op */ } catch(e){}
           }
         }
-        predictions = [...nextLetters];
-        if (predictions.length === 0) {
-          predictions = ["?"];
-        }
-      }
-      logDebug("Predictions: " + predictions.join(", "));
-      updateUI();
-    }
-
-    // Eye detection setup
-    async function setupCamera() {
-      const video = document.getElementById("video");
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
-      return new Promise(resolve => {
-        video.onloadedmetadata = () => resolve(video);
       });
     }
+    if(camera) camera.start();
+    setDetectorState(true);
+    updateStatus("Detector started. Calibrate (Up/Down) before using eye control.");
+  } catch(e){
+    console.error("Camera init error", e);
+    updateStatus("Failed to start camera/detector: " + e.message);
+  }
+});
 
-    function detectDirection(delta) {
-      if (calibrateUpValue === null || calibrateDownValue === null) return "NEUTRAL";
-      const mid = (calibrateUpValue + calibrateDownValue) / 2;
-      if (delta < mid) return "UP";
-      if (delta > mid) return "DOWN";
-      return "NEUTRAL";
+/* Initialize FaceMesh instance & camera - implemented earlier as initFaceMesh.
+   We define it here again to ensure camera object exists and to create a proper Camera instance
+   using MediaPipe's Camera class. */
+async function initFaceMesh(){
+  faceMesh = new FaceMesh({
+    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+  });
+  faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
+  });
+
+  // Set results handler: call our onFaceMeshResults logic and store landmarks
+  faceMesh.onResults((results) => {
+    if(results && results.multiFaceLandmarks && results.multiFaceLandmarks.length>0){
+      window.__lastFaceLandmarks = results.multiFaceLandmarks[0];
+    } else {
+      window.__lastFaceLandmarks = null;
+    }
+    // call the earlier processing function (we defined it above)
+    // For clarity call the same processing code inline:
+    if(!results || !results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0){
+      updateStatus("Face not detected");
+      return;
+    }
+    updateStatus("Face detected");
+    const landmarks = results.multiFaceLandmarks[0];
+    const delta = computeEyeNoseDelta(landmarks);
+    if(delta === null) return;
+
+    if(calibUpVal === null || calibDownVal === null){
+      detIndicator.className = "indicator gray";
+      detStateEl.innerText = "CALIBRATE";
+      return;
     }
 
-    async function runFaceMesh() {
-      const video = await setupCamera();
-      const model = await facemesh.load();
+    setDetectorState(true);
 
-      async function frameLoop() {
-        cooldownCounter = Math.max(0, cooldownCounter - 1);
+    const mid = (calibUpVal + calibDownVal) / 2;
+    const range = Math.abs(calibUpVal - calibDownVal);
+    const upThresh = mid + (range * 0.15);
+    const downThresh = mid - (range * 0.15);
 
-        const predictionsMesh = await model.estimateFaces({ input: video });
-        if (predictionsMesh.length > 0) {
-          const keypoints = predictionsMesh[0].scaledMesh;
-          const eyeY = (keypoints[159][1] + keypoints[386][1]) / 2; // avg eyes
-          const noseY = keypoints[1][1]; // nose tip
-          const delta = noseY - eyeY;
-
-          const direction = detectDirection(delta);
-
-          // Count consecutive frames
-          if (direction === "UP") {
-            upCounter++; downCounter = 0; neutralCounter = 0;
-          } else if (direction === "DOWN") {
-            downCounter++; upCounter = 0; neutralCounter = 0;
-          } else {
-            neutralCounter++; upCounter = 0; downCounter = 0;
-          }
-
-          if (upCounter >= HOLD_FRAMES && lastDirection !== "UP") {
-            logDebug(`Detected UP for ${HOLD_FRAMES} frames → YES`);
-            handleInput(true);
-            lastDirection = "UP";
-          } else if (downCounter >= HOLD_FRAMES && lastDirection !== "DOWN") {
-            logDebug(`Detected DOWN for ${HOLD_FRAMES} frames → NO`);
-            handleInput(false);
-            lastDirection = "DOWN";
-          } else if (neutralCounter >= HOLD_FRAMES) {
-            lastDirection = "NEUTRAL";
-          }
-
-          logDebug(`delta=${delta.toFixed(2)}, direction=${direction}`);
-        } else {
-          logDebug("No face detected");
-        }
-
-        requestAnimationFrame(frameLoop);
-      }
-
-      frameLoop();
+    const now = Date.now();
+    if(delta > upThresh && (now - lastTriggerTime) > TRIGGER_COOLDOWN){
+      lastTriggerTime = now;
+      detIndicator.className = "indicator green";
+      detStateEl.innerText = "LOOK UP → YES";
+      handleYes();
+    } else if(delta < downThresh && (now - lastTriggerTime) > TRIGGER_COOLDOWN){
+      lastTriggerTime = now;
+      detIndicator.className = "indicator red";
+      detStateEl.innerText = "LOOK DOWN → NO";
+      handleNo();
+    } else {
+      detIndicator.className = "indicator gray";
+      detStateEl.innerText = "IDLE";
     }
+  });
 
-    // Event listeners for manual testing
-    document.getElementById("yesBtn").onclick = () => handleInput(true);
-    document.getElementById("noBtn").onclick = () => handleInput(false);
-    document.getElementById("calibrateUpBtn").onclick = () => {
-      calibrateUpValue = parseFloat(prompt("Look UP and enter delta value shown in debug:"));
-      logDebug("Calibrated UP value = " + calibrateUpValue);
-    };
-    document.getElementById("calibrateDownBtn").onclick = () => {
-      calibrateDownValue = parseFloat(prompt("Look DOWN and enter delta value shown in debug:"));
-      logDebug("Calibrated DOWN value = " + calibrateDownValue);
-    };
+  // camera: MediaPipe Camera util
+  camera = new Camera(videoElement, {
+    onFrame: async () => {
+      await faceMesh.send({image: videoElement});
+    },
+    width: 640,
+    height: 480
+  });
+}
 
-    // Initialize
-    loadDictionary().then(() => {
-      predictNext();
-      runFaceMesh();
-    });
-  </script>
+/* Small safety: stop camera when leaving page */
+window.addEventListener('beforeunload', () => {
+  try{ if(camera) camera.stop(); } catch(e){}
+});
+
+/* ====== End of script ====== */
+resetAll();
+</script>
 </body>
 </html>
+
 
 
