@@ -7,6 +7,7 @@
     body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
     #prompt { font-size: 24px; margin: 20px; }
     #output { font-size: 20px; margin-top: 30px; }
+    #debug { text-align: left; margin-top: 30px; font-size: 14px; background: #f9f9f9; padding: 12px; border: 1px solid #ccc; border-radius: 8px; max-width: 720px; margin-left:auto; margin-right:auto; }
     video { display: none; }
     button { font-size: 18px; margin: 10px; padding: 10px 20px; }
     .yesBtn { background-color: #4CAF50; color: white; }
@@ -21,6 +22,11 @@
   <button class="noBtn" onclick="no()">NO (look down)</button>
   <div id="output"></div>
 
+  <div id="debug">
+    <strong>Debug Info:</strong><br>
+    <pre id="debugLog"></pre>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
   <script>
     const vowels = ["A","E","I","O","U"];
@@ -32,7 +38,7 @@
       .then(r => r.text())
       .then(text => {
         dictionary = text.split(/\r?\n/).map(w => w.trim()).filter(Boolean);
-        console.log("Loaded", dictionary.length, "words into dictionary");
+        logDebug("Dictionary loaded: " + dictionary.length + " words");
       });
 
     let sentence = "";
@@ -57,6 +63,7 @@
     }
 
     video.addEventListener("play", () => {
+      logDebug("Face detection started.");
       const interval = setInterval(async () => {
         const detections = await faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks(true);
         if (detections) {
@@ -65,11 +72,11 @@
           const rightEye = landmarks.getRightEye();
 
           let avgY = (leftEye[1].y + rightEye[1].y) / 2;
-          let avgX = (leftEye[0].x + rightEye[3].x) / 2;
 
           if (avgY < landmarks.positions[27].y - 10) { // look up
             upCounter++;
             downCounter = 0;
+            logDebug("Looking UP (" + upCounter + " frames)");
             if (upCounter > frameThreshold) {
               yes();
               upCounter = 0;
@@ -77,10 +84,14 @@
           } else if (avgY > landmarks.positions[27].y + 10) { // look down
             downCounter++;
             upCounter = 0;
+            logDebug("Looking DOWN (" + downCounter + " frames)");
             if (downCounter > frameThreshold) {
               no();
               downCounter = 0;
             }
+          } else {
+            upCounter = 0;
+            downCounter = 0;
           }
         }
       }, 100);
@@ -107,6 +118,7 @@
         updateOutput();
         updatePrompt("Next word: Does it start with a vowel?");
       }
+      logDebug("YES pressed in state: " + step);
     }
 
     function no() {
@@ -125,6 +137,7 @@
         speakSentence();
         resetAll();
       }
+      logDebug("NO pressed in state: " + step);
     }
 
     function showNextLetter() {
@@ -172,10 +185,12 @@
 
     function updatePrompt(text) {
       document.getElementById("prompt").innerText = text;
+      updateDebug();
     }
 
     function updateOutput() {
       document.getElementById("output").innerText = "Current: " + sentence + currentWord;
+      updateDebug();
     }
 
     function resetAll() {
@@ -184,14 +199,25 @@
       step = "idle";
       updatePrompt("Look UP for 3 seconds to start");
       updateOutput();
+      logDebug("System reset");
     }
 
     function speakSentence() {
       const utterance = new SpeechSynthesisUtterance(sentence.trim());
       speechSynthesis.speak(utterance);
+      logDebug("Speaking: " + sentence.trim());
+    }
+
+    // Debugging functions
+    function logDebug(msg) {
+      const log = document.getElementById("debugLog");
+      log.textContent += msg + "\n";
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function updateDebug() {
+      logDebug("[STATE] step=" + step + " | sentence='" + sentence.trim() + "' | currentWord='" + currentWord + "'");
     }
   </script>
 </body>
 </html>
-
-
