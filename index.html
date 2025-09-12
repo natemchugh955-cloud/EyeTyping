@@ -35,28 +35,8 @@
 const vowels = ["A","E","I","O","U"];
 const consonants = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
 
-/* Small built-in dictionary for testing.
-   For better performance replace / expand with a larger wordlist (words.txt).
-   Words SHOULD be lowercase here. */
-const dictionary = [
-  "a","i","the","to","and","it","is","in","you","that","he","was","for","on","are","with",
-  "as","i","his","they","be","at","one","have","this","from","or","had","by","hot","word",
-  "but","what","some","we","can","out","other","were","all","there","when","up","use","your",
-  "how","said","an","each","she","which","do","their","time","if","will","way","about","many",
-  "then","them","write","would","like","so","these","her","long","make","thing","see","him",
-  "two","has","look","more","day","could","go","come","did","number","sound","no","most",
-  "people","my","over","know","water","than","call","first","who","may","down","side","been",
-  "now","find","any","new","work","part","hello","hi","have","him","hit","hike","help","house",
-  "hope","happy","good","great","morning","night","drink","can","mary","tell","me","you","she",
-  "food","water","yes","no","please","thanks","thank","sorry","pain","help","doctor","nurse",
-  "hungry","thirsty","bathroom","sleep","cold","hot","hungry","need","want","stop","wait","okay",
-  "love","like","hate","go","come","sit","stand","walk","left","right","up","down","inside","outside",
-  "today","tomorrow","yesterday","now","later","again","already","please","thanks","bed","chair",
-  "doctor","pain","hurt","doctor","nurse","call","phone","family","music","movie","watch","read",
-  "yesplease","yessir","nope","maybe","fine","helpme","more","less","warm","cool"
-];
-
 /* ====== Runtime state ====== */
+let dictionary = [];
 let sentence = "";
 let currentWord = "";
 let step = "idle";           // idle | askStart | askVowel | vowel | consonant | predictLetter | askNextWord
@@ -134,7 +114,6 @@ function showNextLetter(){
   if(letterIndex < list.length){
     updatePrompt("Letter: " + list[letterIndex] + " ? (YES/NO)");
   } else {
-    updatePrompt("Reached end of list. Starting vowel/consonant choice again.");
     step = "askVowel";
     updatePrompt("Is it a vowel? (YES for vowels, NO for consonants)");
   }
@@ -146,26 +125,23 @@ function addLetter(letter){
   updateStatus("Added letter: " + letter);
   updateOutput();
 
-  // After adding, immediately check if currentWord is exact dictionary word
   if(isExactWord(currentWord)){
-    // still compute predictions AFTER setting this state — keep predictions so "NO" to next-word continues predictions
     predictedLetters = computePredictedLetters(currentWord);
     predictedIndex = 0;
-    updatePrompt(`Word is "${currentWord}". Next word? (YES to accept / NO to continue spelling)`);
     step = "askNextWord";
+    updatePrompt(`Word is "${currentWord}". Next word? (YES to accept / NO to continue spelling)`);
     updateOutput();
     return;
   }
 
-  // Not an exact word — compute next-letter predictions
   predictedLetters = computePredictedLetters(currentWord);
   predictedIndex = 0;
   if(predictedLetters.length > 0){
     step = "predictLetter";
     updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
   } else {
-    // No predictions available — fall back to vowel/consonant scanning
     step = "askVowel";
+    letterIndex = 0;
     updatePrompt("No predictions. Is it a vowel? (YES/NO)");
   }
   updateOutput();
@@ -194,24 +170,21 @@ function handleYes(){
       break;
 
     case "predictLetter":
-      // accept predicted letter
       if(predictedLetters[predictedIndex]){
         addLetter(predictedLetters[predictedIndex]);
       } else {
-        // safety fallback
         step = "askVowel";
         updatePrompt("Prediction missing. Is it a vowel? (YES/NO)");
       }
       break;
 
     case "askNextWord":
-      // accept current word -> add to sentence, and start next word
       sentence += currentWord + " ";
       currentWord = "";
       predictedLetters = [];
       predictedIndex = 0;
       step = "askVowel";
-      updatePrompt("Next word? (Is it a vowel?) YES = vowel set, NO = consonant set");
+      updatePrompt("Next word? (YES = vowel set, NO = consonant set)");
       updateOutput();
       break;
 
@@ -229,29 +202,22 @@ function handleNo(){
       break;
 
     case "askVowel":
-      // choose consonant set
       step = "consonant";
       letterIndex = 0;
       showNextLetter();
       break;
 
     case "vowel":
-      letterIndex++;
-      showNextLetter();
-      break;
-
     case "consonant":
       letterIndex++;
       showNextLetter();
       break;
 
     case "predictLetter":
-      // move to next predicted letter if available, otherwise fallback to vowel/consonant
       predictedIndex++;
       if(predictedIndex < predictedLetters.length){
         updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
       } else {
-        // no more predicted letters — fallback to vowel/consonant scanning
         predictedLetters = [];
         predictedIndex = 0;
         step = "askVowel";
@@ -260,7 +226,6 @@ function handleNo(){
       break;
 
     case "askNextWord":
-      // user said NO to finishing the word — continue spelling (present predictions if any)
       if(!predictedLetters || predictedLetters.length === 0){
         predictedLetters = computePredictedLetters(currentWord);
         predictedIndex = 0;
@@ -286,10 +251,26 @@ noBtn.addEventListener('click', () => { handleNo(); });
 startBtn.addEventListener('click', () => { start(); });
 resetBtn.addEventListener('click', () => { resetAll(); });
 
-/* Initialize UI */
+/* ====== Load large dictionary ====== */
+async function loadDictionary(){
+  try {
+    const resp = await fetch("words.txt");
+    const text = await resp.text();
+    dictionary = text.split(/\r?\n/).map(w => w.trim().toLowerCase()).filter(w => w);
+    console.log("Dictionary loaded:", dictionary.length, "words");
+  } catch(e){
+    console.error("Error loading dictionary:", e);
+    dictionary = ["a","i","the","to","and","it","is","in","you","hello","hi"]; // fallback
+  }
+}
+
+/* Initialize */
 resetAll();
+loadDictionary();
 </script>
 </body>
 </html>
+
+
 
 
