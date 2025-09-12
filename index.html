@@ -42,7 +42,7 @@
 <body>
   <h1>Eye Controlled Sentence Builder</h1>
   <div id="display">Current: </div>
-  <div id="prediction">Predicted Next Letters: </div>
+  <div id="prediction">Predicted Next Letters: ...</div>
   <div id="controls">
     <button onclick="yes()">YES (Look Up)</button>
     <button onclick="no()">NO (Look Down)</button>
@@ -55,7 +55,12 @@
     let letterQueue = [];
     let predicting = false;
 
-    // Load words.txt dynamically
+    // consonant order you gave
+    const consonantOrder = ["t","n","s","h","r","d","l","c","m","w",
+                            "f","g","y","p","b","v","j","k","x","q","z"];
+    const vowels = ["a","e","i","o","u"];
+
+    // Load dictionary
     fetch("words.txt")
       .then(res => res.text())
       .then(text => {
@@ -66,7 +71,7 @@
 
     function startNewWord() {
       currentWord = "";
-      letterQueue = ["vowel?"];
+      letterQueue = ["vowel?"]; // start with vowel question
       predicting = false;
       updateDisplay();
     }
@@ -86,29 +91,35 @@
 
     function yes() {
       if (!predicting) {
-        // First ask vowel or consonant
+        // we’re at the start, deciding vowel/consonant
         if (letterQueue[0] === "vowel?") {
-          letterQueue = ["a", "e", "i", "o", "u"];
+          letterQueue = [...vowels];
           predicting = true;
+        }
+      } else {
+        // accept the current choice
+        if (letterQueue[0] === "next word?") {
+          handleNextWordYes();
         } else {
           acceptLetter(letterQueue[0]);
         }
-      } else {
-        acceptLetter(letterQueue[0]);
       }
       updateDisplay();
     }
 
     function no() {
       if (!predicting) {
-        // They said "no" to vowel, show consonant order
+        // if not a vowel, move to consonants
         if (letterQueue[0] === "vowel?") {
-          letterQueue = ["t","n","s","h","r","d","l","c","m","w",
-                         "f","g","y","p","b","v","j","k","x","q","z"];
+          letterQueue = [...consonantOrder];
           predicting = true;
         }
       } else {
-        letterQueue.shift(); // skip current option
+        if (letterQueue[0] === "next word?") {
+          handleNextWordNo();
+        } else {
+          letterQueue.shift(); // skip current option
+        }
       }
       updateDisplay();
     }
@@ -117,30 +128,31 @@
       currentWord += letter;
       console.log("Accepted:", currentWord);
 
-      // Check if currentWord is a valid word
+      // Check if word complete
       if (words.includes(currentWord)) {
         letterQueue = ["next word?"];
         predicting = true;
-      } else {
-        // Predict next letters based on dictionary
-        let nextLetters = {};
-        words.forEach(w => {
-          if (w.startsWith(currentWord) && w.length > currentWord.length) {
-            let nextChar = w[currentWord.length];
-            nextLetters[nextChar] = (nextLetters[nextChar] || 0) + 1;
-          }
-        });
+        return;
+      }
 
-        // Sort predicted letters by frequency
-        letterQueue = Object.entries(nextLetters)
-          .sort((a, b) => b[1] - a[1])
-          .map(entry => entry[0]);
-
-        if (letterQueue.length === 0) {
-          // If no prediction, restart word
-          letterQueue = ["vowel?"];
-          predicting = false;
+      // Predict next letters based on dictionary
+      let nextLetters = {};
+      words.forEach(w => {
+        if (w.startsWith(currentWord) && w.length > currentWord.length) {
+          let nextChar = w[currentWord.length];
+          nextLetters[nextChar] = (nextLetters[nextChar] || 0) + 1;
         }
+      });
+
+      // Sort predictions
+      letterQueue = Object.entries(nextLetters)
+        .sort((a, b) => b[1] - a[1])
+        .map(entry => entry[0]);
+
+      if (letterQueue.length === 0) {
+        // dead end → restart
+        letterQueue = ["vowel?"];
+        predicting = false;
       }
     }
 
@@ -150,47 +162,27 @@
     }
 
     function handleNextWordNo() {
-      // Keep spelling longer word
+      // continue building longer word
       let possible = words.filter(w => w.startsWith(currentWord));
-      if (possible.length > 0) {
-        let nextLetters = {};
-        possible.forEach(w => {
-          if (w.length > currentWord.length) {
-            let nextChar = w[currentWord.length];
-            nextLetters[nextChar] = (nextLetters[nextChar] || 0) + 1;
-          }
-        });
-        letterQueue = Object.entries(nextLetters)
-          .sort((a, b) => b[1] - a[1])
-          .map(entry => entry[0]);
-      } else {
-        // Dead end
+      let nextLetters = {};
+      possible.forEach(w => {
+        if (w.length > currentWord.length) {
+          let nextChar = w[currentWord.length];
+          nextLetters[nextChar] = (nextLetters[nextChar] || 0) + 1;
+        }
+      });
+      letterQueue = Object.entries(nextLetters)
+        .sort((a, b) => b[1] - a[1])
+        .map(entry => entry[0]);
+
+      if (letterQueue.length === 0) {
         letterQueue = ["vowel?"];
         predicting = false;
       }
     }
-
-    // Extend yes/no for "next word?" case
-    const oldYes = yes;
-    const oldNo = no;
-    yes = function() {
-      if (letterQueue[0] === "next word?") {
-        handleNextWordYes();
-        updateDisplay();
-      } else {
-        oldYes();
-      }
-    };
-    no = function() {
-      if (letterQueue[0] === "next word?") {
-        handleNextWordNo();
-        updateDisplay();
-      } else {
-        oldNo();
-      }
-    };
   </script>
 </body>
 </html>
+
 
 
