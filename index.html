@@ -427,8 +427,8 @@ function onFaceMeshResults(results){
   const mid = (calibUpVal + calibDownVal) / 2;
   const range = Math.abs(calibUpVal - calibDownVal);
   // hysteresis: require delta to be beyond mid by a fraction of range
-  const upThresh = mid + (range * 0.3);
-  const downThresh = mid - (range * 0.3);
+  const upThresh = mid + (range * 0.5);
+  const downThresh = mid - (range * 0.5);
 
   // Determine look direction
   const now = Date.now();
@@ -647,6 +647,7 @@ resetAll();
 </script>
 </body>
 </html>
+
 
 
 
