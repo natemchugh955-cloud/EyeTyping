@@ -2,52 +2,31 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Eye Typing Prototype — Mobile Friendly</title>
+<title>Eye Typing Mobile-Friendly</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
-  body { 
-    font-family: Arial, sans-serif; 
-    text-align: center; 
-    padding: 12px; 
-    max-width: 500px; 
-    margin: auto; 
-    background: #f8f8f8;
-  }
-  h1 { font-size: 22px; margin-bottom: 12px; }
-  #prompt { font-size: 22px; font-weight: 600; margin: 12px 0; min-height: 40px; }
-  #letter { font-size: 48px; font-weight: 700; margin: 20px 0; }
-  #output { font-size: 18px; margin: 12px 0; word-break: break-word; }
-  #predictions { font-size: 16px; margin: 8px 0; color: #222; }
-  #status { font-size: 14px; color: #333; margin-top: 8px; }
-  button { 
-    font-size: 20px; 
-    padding: 14px 20px; 
-    margin: 6px 4px; 
-    border: none; 
-    border-radius: 8px; 
-    cursor: pointer; 
-    transition: 0.15s; 
-  }
-  #yesBtn { background:#28a745; color:#fff; width:45%; }
-  #noBtn { background:#dc3545; color:#fff; width:45%; }
-  #calUp, #calDown { background:#444; color:#fff; width:45%; }
-  #startBtn { background:#007bff; color:#fff; width:100%; margin:8px 0; }
-  #resetBtn { background:#ff9800; color:#fff; width:100%; margin:8px 0; }
-  #finishBtn { background:#6f42c1; color:#fff; width:100%; margin:8px 0; }
-  #detectorStatus { margin-top:12px; font-size:16px; font-weight:600; }
-  .indicator { display:inline-block; width:16px; height:16px; border-radius:50%; margin-left:8px; vertical-align:middle; }
-  .green { background: #28a745; } 
-  .red { background:#dc3545; } 
-  .gray { background:#bbb; }
-  .debug { font-size:12px; color:#666; margin-top:12px; }
-  #webcam { display:none; }
+  body { font-family: Arial, sans-serif; text-align:center; padding:12px; max-width:500px; margin:auto; }
+  h1 { font-size:28px; margin-bottom:12px; }
+  #prompt { font-size:20px; margin:16px 0; min-height:50px; }
+  #output { font-size:18px; margin:12px 0; word-break:break-word; }
+  #predictions { font-size:16px; margin:12px 0; color:#222; }
+  #status { font-size:14px; color:#333; margin:8px 0; }
+  button { font-size:20px; padding:12px 20px; margin:6px; border:none; border-radius:8px; cursor:pointer; transition:0.15s; }
+  #yesBtn { background:#28a745; color:#fff; }
+  #noBtn { background:#dc3545; color:#fff; }
+  #resetBtn { background:#ff9800; color:#fff; }
+  #finishBtn { background:#6f42c1; color:#fff; }
+  .calib { background:#444; color:#fff; font-size:18px; }
+  #webcam { display:none; width:100%; max-width:320px; border-radius:6px; margin-top:12px; }
+  .indicator { display:inline-block; width:14px; height:14px; border-radius:50%; margin-left:8px; vertical-align:middle; }
+  .green { background: #28a745; } .red { background:#dc3545; } .gray { background:#bbb; }
+  .small { font-size:13px; color:#555; margin-top:8px; }
 </style>
 </head>
 <body>
 <h1>Eye Typing Prototype</h1>
 
-<div id="prompt">Press START to begin.</div>
-<div id="letter"></div>
+<div id="prompt">Would you like to start? (YES/NO)</div>
 
 <div id="output"></div>
 <div id="predictions"></div>
@@ -58,273 +37,175 @@
 </div>
 
 <div style="margin-top:12px;">
-  <button id="calUp">Calibrate Up</button>
-  <button id="calDown">Calibrate Down</button>
+  <button id="calUp" class="calib">Calibrate Up</button>
+  <button id="calDown" class="calib">Calibrate Down</button>
+  <span id="detectorStatus">Detector: <span id="detState">OFF</span> 
+  <span id="detIndicator" class="indicator gray"></span></span>
 </div>
 
-<div id="detectorStatus">Detector: <span id="detState">OFF</span> <span id="detIndicator" class="indicator gray"></span></div>
-<div class="debug" id="status" aria-live="polite"></div>
+<div id="status" aria-live="polite"></div>
+<div class="small">Use calibration before relying on eye control. Buttons always work as a fallback.</div>
 
-<!-- Hidden webcam element -->
 <video id="webcam" autoplay playsinline></video>
 
-<!-- MediaPipe JS -->
+<!-- MediaPipe -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
 <script>
-/* ======================== Your Eye Typing JS ======================== */
+/* =================== Word prediction logic =================== */
+const vowels=["A","E","I","O","U"];
+const consonants=["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
 
-/* Configuration */
-const vowels = ["A","E","I","O","U"];
-const consonants = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
-let dictionary = [
-  "a","i","the","to","and","it","is","in","you","that","he","was","for","on","are","with",
-  "as","i","his","they","be","at","one","have","this","from","or","had","by","hot","word",
-  "but","what","some","we","can","out","other","were","all","there","when","up","use","your",
-  "how","said","an","each","she","which","do","their","time","if","will","way","about","many",
-  "then","them","write","would","like","so","these","her","long","make","thing","see","him",
-  "two","has","look","more","day","could","go","come","did","number","sound","no","most",
-  "people","my","over","know","water","than","call","first","who","may","down","side","been",
-  "now","find","any","new","work","part","hello","hi","have","him","hit","hike","help","house",
-  "hope","happy","good","great","morning","night","drink","can","mary","tell","me","you","she",
-  "food","water","yes","no","please","thanks","thank","sorry","pain","help","doctor","nurse"
-];
-const stored = JSON.parse(localStorage.getItem("customWords") || "[]");
-dictionary = dictionary.concat(stored);
+let dictionary=["a","i","the","to","and","it","is","in","you","that","he","was","for","on","are","with","as","his","they","be","at","one"];
+const stored=JSON.parse(localStorage.getItem("customWords")||"[]");
+dictionary=dictionary.concat(stored);
 
-/* Runtime state */
-let sentence = "";
-let currentWord = "";
-let step = "idle";           // idle | askStart | askVowel | vowel | consonant | predictLetter | askNextWord
-let letterIndex = 0;
-let predictedLetters = [];
-let predictedIndex = 0;
+let sentence="", currentWord="", step="askStart", letterIndex=0, predictedLetters=[], predictedIndex=0;
 
 /* DOM */
-const promptEl = document.getElementById('prompt');
-const letterEl = document.getElementById('letter');
-const statusEl = document.getElementById('status');
-const outputEl = document.getElementById('output');
-const predsEl = document.getElementById('predictions');
-const yesBtn = document.getElementById('yesBtn');
-const noBtn = document.getElementById('noBtn');
-const startBtn = document.getElementById('startBtn');
-const resetBtn = document.getElementById('resetBtn');
-const finishBtn = document.getElementById('finishBtn');
-const calUpBtn = document.getElementById('calUp');
-const calDownBtn = document.getElementById('calDown');
-const detStateEl = document.getElementById('detState');
-const detIndicator = document.getElementById('detIndicator');
+const promptEl=document.getElementById('prompt');
+const statusEl=document.getElementById('status');
+const outputEl=document.getElementById('output');
+const predsEl=document.getElementById('predictions');
+const yesBtn=document.getElementById('yesBtn');
+const noBtn=document.getElementById('noBtn');
+const resetBtn=document.getElementById('resetBtn');
+const finishBtn=document.getElementById('finishBtn');
+const calUpBtn=document.getElementById('calUp');
+const calDownBtn=document.getElementById('calDown');
+const detStateEl=document.getElementById('detState');
+const detIndicator=document.getElementById('detIndicator');
 
 /* Helpers */
-function updatePrompt(t){ 
-  promptEl.innerText = t; 
-  letterEl.innerText = step==="vowel" ? vowels[letterIndex] : step==="consonant" ? consonants[letterIndex] : ""; 
-}
-function updateStatus(t){ statusEl.innerText = t; }
+function updatePrompt(t){ promptEl.innerText=t; }
+function updateStatus(t){ statusEl.innerText=t; }
 function updateOutput(){
-  outputEl.innerHTML = `<strong>Sentence:</strong> ${sentence.trim()}<br/><strong>Current word:</strong> ${currentWord}`;
-  predsEl.innerHTML = predictedLetters.length ? `<strong>Predicted next letters:</strong> ${predictedLetters.join(', ')}` : '';
+  outputEl.innerHTML=`<strong>Sentence:</strong> ${sentence.trim()}<br/><strong>Current word:</strong> ${currentWord}`;
+  predsEl.innerHTML=predictedLetters.length?`<strong>Predicted next letters:</strong> ${predictedLetters.join(', ')}`:'';
 }
-function toLower(s){ return s ? s.toLowerCase() : s; }
-
-/* compute predictions */
+function toLower(s){ return s?s.toLowerCase():s; }
 function computePredictedLetters(prefix){
-  const p = toLower(prefix);
-  const freq = {};
-  for(const w of dictionary){
-    if(w.startsWith(p) && w.length > p.length){
-      const next = w[p.length].toUpperCase();
-      freq[next] = (freq[next] || 0) + 1;
-    }
+  const p=toLower(prefix), freq={};
+  for(const w of dictionary) if(w.startsWith(p) && w.length>p.length){
+    const next=w[p.length].toUpperCase();
+    freq[next]=(freq[next]||0)+1;
   }
-  const arr = Object.entries(freq).sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(e => e[0]);
-  return arr;
+  return Object.entries(freq).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0])).map(e=>e[0]);
 }
 function isExactWord(prefix){ return dictionary.includes(toLower(prefix)); }
 function addWordToDictionary(word){
-  word = toLower(word);
+  word=toLower(word);
   if(!dictionary.includes(word)){
     dictionary.push(word);
-    let custom = JSON.parse(localStorage.getItem("customWords") || "[]");
+    let custom=JSON.parse(localStorage.getItem("customWords")||"[]");
     custom.push(word);
-    localStorage.setItem("customWords", JSON.stringify(custom));
-    updateStatus(`Added new word "${word}" to dictionary (saved locally).`);
+    localStorage.setItem("customWords",JSON.stringify(custom));
+    updateStatus(`Added new word "${word}" to dictionary.`);
   }
 }
 function speakSentence(text){
   if('speechSynthesis' in window){
-    const u = new SpeechSynthesisUtterance(text);
-    window.speechSynthesis.speak(u);
-  } else { updateStatus("Speech synthesis not supported."); }
+    const u=new SpeechSynthesisUtterance(text); window.speechSynthesis.speak(u);
+  } else updateStatus("Speech not supported.");
 }
 
-/* Core flows */
-function start(){
-  sentence = "";
-  currentWord = "";
-  step = "askStart";
-  predictedLetters = [];
-  predictedIndex = 0;
-  letterIndex = 0;
-  updatePrompt("Start a new sentence? (YES to begin)");
-  updateStatus("");
-  updateOutput();
-}
-function resetAll(){
-  sentence = "";
-  currentWord = "";
-  step = "idle";
-  predictedLetters = [];
-  predictedIndex = 0;
-  letterIndex = 0;
-  updatePrompt("Press START to begin.");
-  updateStatus("Reset.");
-  updateOutput();
-}
+/* Core flow */
 function showNextLetter(){
-  const list = (step === "vowel") ? vowels : (step === "consonant") ? consonants : [];
-  if(letterIndex < list.length){ updatePrompt("Letter: " + list[letterIndex] + " ? (YES/NO)"); }
-  else { step = "askVowel"; updatePrompt("Reached end of list. Is it a vowel? (YES/NO)"); }
+  const list=(step==="vowel")?vowels:(step==="consonant")?consonants:[];
+  if(letterIndex<list.length) updatePrompt("Letter: "+list[letterIndex]+" ?");
+  else { step="askVowel"; updatePrompt("Reached end of list. Is it a vowel?"); }
 }
 function addLetter(letter){
-  currentWord += letter;
-  updateStatus("Added letter: " + letter);
-  updateOutput();
+  currentWord+=letter; updateStatus("Added letter: "+letter); updateOutput();
   if(isExactWord(currentWord)){
-    predictedLetters = computePredictedLetters(currentWord);
-    predictedIndex = 0;
-    step = "askNextWord";
-    updatePrompt(`Word is "${currentWord}". Next word? (YES to accept / NO to continue spelling)`);
-    updateOutput();
-    return;
+    predictedLetters=computePredictedLetters(currentWord); predictedIndex=0;
+    step="askNextWord"; updatePrompt(`Word is "${currentWord}". Next word? (YES to accept / NO to continue spelling)`); updateOutput(); return;
   }
-  predictedLetters = computePredictedLetters(currentWord);
-  predictedIndex = 0;
-  if(predictedLetters.length > 0){
-    step = "predictLetter";
-    updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
-  } else { step = "askVowel"; updatePrompt("No predictions. Is it a vowel? (YES/NO)"); }
+  predictedLetters=computePredictedLetters(currentWord); predictedIndex=0;
+  if(predictedLetters.length>0){ step="predictLetter"; updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"?`); }
+  else { step="askVowel"; updatePrompt("No predictions. Is it a vowel?"); }
   updateOutput();
 }
 
 function handleYes(){
   switch(step){
-    case "askStart": step = "askVowel"; updatePrompt("Is it a vowel? (YES/NO)"); break;
-    case "askVowel": step = "vowel"; letterIndex = 0; showNextLetter(); break;
+    case "askStart": step="askVowel"; updatePrompt("Is it a vowel?"); break;
+    case "askVowel": step="vowel"; letterIndex=0; showNextLetter(); break;
     case "vowel": addLetter(vowels[letterIndex]); break;
     case "consonant": addLetter(consonants[letterIndex]); break;
-    case "predictLetter": if(predictedLetters[predictedIndex]) addLetter(predictedLetters[predictedIndex]); else { step="askVowel"; updatePrompt("Prediction missing. Is it a vowel? (YES/NO)"); } break;
+    case "predictLetter": if(predictedLetters[predictedIndex]) addLetter(predictedLetters[predictedIndex]); else { step="askVowel"; updatePrompt("Prediction missing. Is it a vowel? "); } break;
     case "askNextWord":
-      sentence += currentWord + " ";
+      sentence+=currentWord+" ";
       if(!dictionary.includes(currentWord.toLowerCase())) addWordToDictionary(currentWord);
-      currentWord = "";
-      predictedLetters = [];
-      predictedIndex = 0;
-      step = "askVowel";
-      updatePrompt("Next word? (YES = vowel set, NO = consonant set)");
-      updateOutput();
-      break;
-    default: updateStatus("Unhandled YES in state: " + step);
+      currentWord=""; predictedLetters=[]; predictedIndex=0;
+      step="askVowel"; updatePrompt("Next word? (YES = vowel, NO = consonant)"); updateOutput(); break;
+    default: updateStatus("Unhandled YES: "+step);
   }
 }
-
 function handleNo(){
   switch(step){
-    case "askStart": step = "idle"; updatePrompt("Okay — not starting. Press START to try again."); break;
-    case "askVowel": step = "consonant"; letterIndex = 0; showNextLetter(); break;
+    case "askStart": step="idle"; updatePrompt("Not starting."); break;
+    case "askVowel": step="consonant"; letterIndex=0; showNextLetter(); break;
     case "vowel":
     case "consonant": letterIndex++; showNextLetter(); break;
-    case "predictLetter": predictedIndex++; if(predictedIndex < predictedLetters.length) updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`); else { predictedLetters=[]; predictedIndex=0; step="askVowel"; updatePrompt("No more predicted letters. Is it a vowel? (YES/NO)"); } break;
-    case "askNextWord":
-      if(!predictedLetters || predictedLetters.length===0){ predictedLetters=computePredictedLetters(currentWord); predictedIndex=0; }
-      if(predictedLetters.length>0){ step="predictLetter"; updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`); }
-      else { step="askVowel"; updatePrompt("No predictions. Is it a vowel? (YES/NO)"); }
-      break;
-    default: updateStatus("Unhandled NO in state: " + step);
+    case "predictLetter": predictedIndex++; if(predictedIndex<predictedLetters.length) updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? `); else { predictedLetters=[]; predictedIndex=0; step="askVowel"; updatePrompt("No more predicted letters. Is it a vowel?"); } break;
+    case "askNextWord": if(!predictedLetters || predictedLetters.length===0){ predictedLetters=computePredictedLetters(currentWord); predictedIndex=0; } if(predictedLetters.length>0){ step="predictLetter"; updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"?`); } else { step="askVowel"; updatePrompt("No predictions. Is it a vowel? "); } break;
+    default: updateStatus("Unhandled NO: "+step);
   }
   updateOutput();
 }
 
 /* Button hooks */
-yesBtn.addEventListener('click', handleYes);
-noBtn.addEventListener('click', handleNo);
-startBtn?.addEventListener('click', start);
-resetBtn?.addEventListener('click', resetAll);
-finishBtn?.addEventListener('click', () => {
-  if(sentence.trim()){ speakSentence(sentence.trim()); updateStatus("Speaking: " + sentence.trim()); sentence=""; currentWord=""; step="idle"; predictedLetters=[]; predictedIndex=0; updateOutput(); } 
+yesBtn.addEventListener('click',()=>{ handleYes(); });
+noBtn.addEventListener('click',()=>{ handleNo(); });
+finishBtn?.addEventListener('click',()=>{
+  if(sentence.trim()){ speakSentence(sentence.trim()); updateStatus("Speaking: "+sentence.trim()); sentence=""; currentWord=""; step="idle"; predictedLetters=[]; predictedIndex=0; updateOutput(); }
   else updateStatus("No sentence to speak.");
 });
 
-/* Load words.txt if exists */
-(async function loadWordsFile(){
-  try {
-    const r = await fetch("words.txt");
-    if(!r.ok) throw new Error("no file");
-    const text = await r.text();
-    const words = text.split(/\r?\n/).map(s => s.trim().toLowerCase()).filter(Boolean);
-    const custom = JSON.parse(localStorage.getItem("customWords") || "[]");
-    dictionary = words.concat(custom);
-    updateStatus("Loaded dictionary: " + dictionary.length + " words");
-  } catch(e){ updateStatus("Using built-in dictionary (words.txt not found)."); }
-})();
+/* =================== MediaPipe FaceMesh =================== */
+const videoElement=document.getElementById('webcam');
+let camera=null, faceMesh=null, calibUpVal=null, calibDownVal=null, detectorOn=false, lastTriggerTime=0;
+const TRIGGER_COOLDOWN=900;
 
-/* ========== MediaPipe FaceMesh & Eye Detection ========== */
-const videoElement = document.getElementById('webcam');
-let camera=null, faceMesh=null;
-let calibUpVal=null, calibDownVal=null, detectorOn=false, lastTriggerTime=0;
-const TRIGGER_COOLDOWN = 900;
-
-function setDetectorState(on){
-  detectorOn = on;
-  detStateEl.innerText = on?"ON":"OFF";
-  detIndicator.className = "indicator " + (on?"green":"gray");
-}
-
-function computeEyeNoseDelta(landmarks){
-  if(!landmarks || landmarks.length<400) return null;
-  const leftTop=landmarks[159], leftBottom=landmarks[145];
-  const rightTop=landmarks[386], rightBottom=landmarks[374];
-  const nose=landmarks[1]||landmarks[4];
-  if(!leftTop||!leftBottom||!rightTop||!rightBottom||!nose) return null;
-  const leftCenterY=(leftTop.y+leftBottom.y)/2;
-  const rightCenterY=(rightTop.y+rightBottom.y)/2;
-  const noseY=nose.y;
-  return ((leftCenterY + rightCenterY)/2 - noseY);
-}
+function setDetectorState(on){ detectorOn=on; detStateEl.innerText=on?"ON":"OFF"; detIndicator.className="indicator "+(on?"green":"gray"); }
+function computeEyeNoseDelta(lm){ if(!lm || lm.length<400) return null; const leftCenterY=(lm[159].y+lm[145].y)/2; const rightCenterY=(lm[386].y+lm[374].y)/2; const noseY=lm[1].y; return ((leftCenterY+rightCenterY)/2 - noseY); }
 
 function onResults(results){
   if(!detectorOn) return;
   const delta = computeEyeNoseDelta(results.multiFaceLandmarks?.[0]);
   if(delta===null) return;
+  if(calibUpVal===null || calibDownVal===null) return;
   const mid=(calibUpVal+calibDownVal)/2;
   const range=(calibUpVal-calibDownVal)/2;
-  const upThresh = mid + (range*0.15);
-  const downThresh = mid - (range*0.15);
-  const now = Date.now();
-  if(delta>upThresh && now-lastTriggerTime>TRIGGER_COOLDOWN){ handleYes(); lastTriggerTime=now; }
-  else if(delta<downThresh && now-lastTriggerTime>TRIGGER_COOLDOWN){ handleNo(); lastTriggerTime=now; }
+  const upThresh=mid+range*0.15;
+  const downThresh=mid-range*0.15;
+  const now=Date.now();
+  if(delta>upThresh && now-lastTriggerTime>TRIGGER_COOLDOWN){ handleYes(); lastTriggerTime=now; detIndicator.className="indicator green"; detStateEl.innerText="LOOK UP → YES"; }
+  else if(delta<downThresh && now-lastTriggerTime>TRIGGER_COOLDOWN){ handleNo(); lastTriggerTime=now; detIndicator.className="indicator red"; detStateEl.innerText="LOOK DOWN → NO"; }
+  else { detIndicator.className="indicator gray"; detStateEl.innerText="IDLE"; }
 }
 
-function startCamera(){
-  faceMesh = new FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+async function startCamera(){
+  faceMesh=new FaceMesh({locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
   faceMesh.setOptions({maxNumFaces:1, refineLandmarks:true, minDetectionConfidence:0.7, minTrackingConfidence:0.7});
   faceMesh.onResults(onResults);
-  camera = new Camera(videoElement,{onFrame:async()=>{await faceMesh.send({image:videoElement});}, width:320, height:240});
-  camera.start();
-  setDetectorState(true);
+  camera=new Camera(videoElement,{onFrame:async()=>{await faceMesh.send({image:videoElement});}, width:320, height:240});
+  camera.start(); setDetectorState(true);
 }
 
-/* Calibration buttons */
-calUpBtn.addEventListener('click',()=>{ calibUpVal = Math.random(); updateStatus("Calibrate Up clicked (simulate)"); });
-calDownBtn.addEventListener('click',()=>{ calibDownVal = Math.random(); updateStatus("Calibrate Down clicked (simulate)"); });
+/* Calibration */
+calUpBtn.addEventListener('click',()=>{ calibUpVal=Math.random(); updateStatus("Calibrate Up clicked (simulate)"); });
+calDownBtn.addEventListener('click',()=>{ calibDownVal=Math.random(); updateStatus("Calibrate Down clicked (simulate)"); });
 
-/* Auto-start webcam */
+/* Init */
 startCamera();
 updateOutput();
 </script>
 </body>
 </html>
+
+
 
 
