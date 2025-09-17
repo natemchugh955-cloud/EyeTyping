@@ -1314,16 +1314,27 @@ attune
 aubergine
 
 audacity
+
 audibly
+
 auditory
+
 auspice
+
 avenge
+
 avert
+
 avid
+
 avouch
+
 avow
+
 aweless
+
 axis
+
 babble
 
 babysitting
@@ -17452,7 +17463,7 @@ threaten
 threshold
 
 thrill
-TV
+
 trim
 
 throat
@@ -19079,11 +19090,14 @@ emmet
 
 mathilda
 
-eliot
+elLiot
 
 miles
 
 caleb
+
+tv
+
 
 
 
