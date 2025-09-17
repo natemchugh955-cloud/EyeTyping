@@ -2,265 +2,372 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Eye Typing with Eye Detection</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Eye Typing Prototype — Mobile Friendly</title>
 <style>
-  body { font-family: Arial, sans-serif; text-align:center; padding:16px; max-width:600px; margin:auto;}
-  h1 { font-size:28px; margin-bottom:12px; }
-  #prompt { font-size:22px; margin:16px 0; min-height:60px; }
-  #letter { font-size:48px; margin:16px 0; font-weight:bold; }
-  #output { font-size:20px; margin:12px 0; word-break:break-word; }
-  #predictions { font-size:18px; margin:8px 0; color:#222; }
-  #status { font-size:16px; margin-top:6px; color:#333; }
-  button { font-size:20px; padding:12px 20px; margin:6px; border:none; border-radius:8px; cursor:pointer; transition:0.15s; }
-  #yesBtn { background:#28a745; color:#fff; }
-  #noBtn { background:#dc3545; color:#fff; }
-  #calUp, #calDown { background:#444; color:#fff; }
-  .indicator { display:inline-block; width:16px; height:16px; border-radius:50%; margin-left:8px; vertical-align:middle; }
-  .green { background: #28a745; } .red { background:#dc3545; } .gray { background:#bbb; }
-  #webcam { display:none; width:320px; height:240px; border-radius:6px; margin-top:10px;}
-  .small { font-size:14px; color:#555; margin-top:6px; }
+  body {
+    font-family: Arial, sans-serif;
+    padding: 12px;
+    margin: 0;
+    background: #f9f9f9;
+    text-align: center;
+  }
+
+  #prompt {
+    font-size: 20px;
+    margin: 12px 0;
+    font-weight: bold;
+  }
+
+  #letterBox {
+    font-size: 64px;
+    font-weight: bold;
+    margin: 18px 0;
+    padding: 20px;
+    background: #fff;
+    border: 2px solid #ddd;
+    border-radius: 12px;
+    min-height: 80px;
+  }
+
+  #output {
+    font-size: 18px;
+    margin: 12px 0;
+    background: #fff;
+    padding: 10px;
+    border-radius: 10px;
+  }
+
+  #predictions {
+    font-size: 18px;
+    margin: 10px 0;
+    background: #eef;
+    padding: 8px;
+    border-radius: 10px;
+  }
+
+  .button-row {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 16px 0;
+  }
+
+  button {
+    flex: 1 1 40%;
+    font-size: 20px;
+    padding: 16px;
+    border: none;
+    border-radius: 12px;
+    color: white;
+    cursor: pointer;
+  }
+
+  #yesBtn {
+    background: #28a745;
+  }
+
+  #noBtn {
+    background: #dc3545;
+  }
+
+  #calibUpBtn {
+    background: #007bff;
+  }
+
+  #calibDownBtn {
+    background: #6f42c1;
+  }
+
+  #debug {
+    font-size: 14px;
+    color: #555;
+    text-align: left;
+    margin-top: 16px;
+    padding: 10px;
+    background: #fff3cd;
+    border: 1px solid #ffeeba;
+    border-radius: 8px;
+    white-space: pre-wrap;
+  }
+
+  video {
+    display: none;
+  }
 </style>
 </head>
 <body>
-<h1>Eye Typing Prototype — Eye Detection</h1>
+  <h1>Eye Typing Prototype — Mobile Friendly</h1>
 
-<div id="prompt">Would you like to start?</div>
-<div id="letter"> </div>
-<div id="output"></div>
-<div id="predictions"></div>
+  <div id="prompt">Press START to begin.</div>
+  <div id="letterBox">—</div>
 
-<div>
-  <button id="yesBtn">YES</button>
-  <button id="noBtn">NO</button>
-</div>
+  <div id="output"></div>
+  <div id="predictions"></div>
 
-<div style="margin-top:12px;">
-  <button id="calUp">Calibrate Up</button>
-  <button id="calDown">Calibrate Down</button>
-  <span id="detectorStatus">Detector: <span id="detState">OFF</span> <span id="detIndicator" class="indicator gray"></span></span>
-</div>
+  <div class="button-row">
+    <button id="yesBtn">YES (Look Up)</button>
+    <button id="noBtn">NO (Look Down)</button>
+  </div>
 
-<div id="status" aria-live="polite"></div>
-<div class="small">Use calibration before relying on eye control. Buttons always work as a fallback.</div>
+  <div class="button-row">
+    <button id="calibUpBtn">Calibrate Up</button>
+    <button id="calibDownBtn">Calibrate Down</button>
+  </div>
 
-<video id="webcam" autoplay playsinline></video>
+  <div id="debug"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <video id="webcam" autoplay playsinline width="320" height="240"></video>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh"></script>
 
 <script>
-/* ===================== DICTIONARY ===================== */
-let dictionary = [];
-
-// Load words.txt
-fetch('words.txt')
-  .then(response => response.text())
-  .then(text => {
-    dictionary = text.split(/\r?\n/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
-    // merge custom words
-    const custom = JSON.parse(localStorage.getItem("customWords") || "[]");
-    dictionary = dictionary.concat(custom);
-    updateStatus(`Loaded ${dictionary.length} words from words.txt`);
-  })
-  .catch(err => {
-    console.error('Failed to load words.txt:', err);
-    updateStatus('Failed to load words.txt, using empty dictionary.');
-  });
-
-/* ===================== CONFIG ===================== */
+/* ================= Config ================= */
 const vowels = ["A","E","I","O","U"];
 const consonants = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
+let dictionary = [];
 
-/* ===================== STATE ===================== */
+/* Load dictionary from words.txt */
+async function loadDictionary() {
+  try {
+    const resp = await fetch("words.txt");
+    const text = await resp.text();
+    dictionary = text.split(/\r?\n/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
+    logDebug(`Loaded dictionary with ${dictionary.length} words.`);
+  } catch (e) {
+    logDebug("Failed to load dictionary, using fallback.");
+    dictionary = ["hello","hi","have","hope","good","great","you","yes","no"];
+  }
+}
+
+/* ================= Runtime state ================= */
 let sentence = "";
 let currentWord = "";
-let step = "askStart"; // askStart | askVowel | vowel | consonant | predictLetter | askNextWord
+let step = "idle";
 let letterIndex = 0;
 let predictedLetters = [];
 let predictedIndex = 0;
 
-/* ===================== DOM ===================== */
-const promptEl = document.getElementById('prompt');
-const letterEl = document.getElementById('letter');
-const outputEl = document.getElementById('output');
-const predsEl = document.getElementById('predictions');
-const statusEl = document.getElementById('status');
-const yesBtn = document.getElementById('yesBtn');
-const noBtn = document.getElementById('noBtn');
-const calUpBtn = document.getElementById('calUp');
-const calDownBtn = document.getElementById('calDown');
-const detStateEl = document.getElementById('detState');
-const detIndicator = document.getElementById('detIndicator');
+/* ================= DOM ================= */
+const promptEl = document.getElementById("prompt");
+const letterBox = document.getElementById("letterBox");
+const outputEl = document.getElementById("output");
+const predsEl = document.getElementById("predictions");
+const debugEl = document.getElementById("debug");
 
-/* ===================== HELPERS ===================== */
-function updatePrompt(t){ promptEl.innerText = t; }
-function updateStatus(t){ statusEl.innerText = t; }
-function updateLetter(t){ letterEl.innerText = t; }
-function updateOutput(){
+/* ================= Helpers ================= */
+function updatePrompt(t) { promptEl.innerText = t; }
+function updateLetter(t) { letterBox.innerText = t || "—"; }
+function updateOutput() {
   outputEl.innerHTML = `<strong>Sentence:</strong> ${sentence.trim()}<br/><strong>Current word:</strong> ${currentWord}`;
-  predsEl.innerHTML = predictedLetters.length ? `<strong>Predicted next letters:</strong> ${predictedLetters.join(', ')}` : '';
+  predsEl.innerHTML = predictedLetters.length ? `<strong>Predicted next letters:</strong> ${predictedLetters.join(", ")}` : "";
 }
-function toLower(s){ return s ? s.toLowerCase() : s; }
-function computePredictedLetters(prefix){
+function logDebug(msg) {
+  debugEl.innerText += msg + "\n";
+  debugEl.scrollTop = debugEl.scrollHeight;
+}
+function toLower(s) { return s ? s.toLowerCase() : s; }
+
+/* Predictions */
+function computePredictedLetters(prefix) {
   const p = toLower(prefix);
   const freq = {};
-  for(const w of dictionary){
-    if(w.startsWith(p) && w.length > p.length){
+  for (const w of dictionary) {
+    if (w.startsWith(p) && w.length > p.length) {
       const next = w[p.length].toUpperCase();
       freq[next] = (freq[next] || 0) + 1;
     }
   }
   return Object.entries(freq)
-               .sort((a,b) => b[1]-a[1] || a[0].localeCompare(b[0]))
-               .map(e=>e[0]);
+    .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(e => e[0]);
 }
-function isExactWord(prefix){ return dictionary.includes(toLower(prefix)); }
-function addWordToDictionary(word){
-  word = toLower(word);
-  if(!dictionary.includes(word)){
-    dictionary.push(word);
-    let custom = JSON.parse(localStorage.getItem("customWords") || "[]");
-    custom.push(word);
-    localStorage.setItem("customWords", JSON.stringify(custom));
-    updateStatus(`Added new word "${word}" to dictionary (saved locally).`);
-  }
-}
-function speakSentence(text){
-  if('speechSynthesis' in window){
-    const u = new SpeechSynthesisUtterance(text);
-    window.speechSynthesis.speak(u);
-  } else updateStatus("Speech synthesis not supported.");
+function isExactWord(prefix) {
+  return dictionary.includes(toLower(prefix));
 }
 
-/* ===================== CORE LOGIC ===================== */
-function start(){ step="askVowel"; currentWord=""; letterIndex=0; predictedLetters=[]; predictedIndex=0; updatePrompt("Is it a vowel? (YES/NO)"); updateOutput(); updateLetter(""); }
-function resetAll(){ sentence=""; currentWord=""; step="askStart"; letterIndex=0; predictedLetters=[]; predictedIndex=0; updatePrompt("Would you like to start?"); updateLetter(""); updateOutput(); updateStatus("Reset."); }
-function showNextLetter(){
-  const list = step==="vowel"?vowels:step==="consonant"?consonants:[]; 
-  if(letterIndex < list.length){ updateLetter(list[letterIndex]); updatePrompt(`Letter: ${list[letterIndex]} ? (YES/NO)`); }
-  else { step="askVowel"; updatePrompt("Reached end of list. Is it a vowel? (YES/NO)"); updateLetter(""); }
+/* ================= Core Flow ================= */
+function start() {
+  sentence = "";
+  currentWord = "";
+  step = "askStart";
+  predictedLetters = [];
+  predictedIndex = 0;
+  letterIndex = 0;
+  updatePrompt("Start a new sentence? Look UP for YES.");
+  updateLetter("—");
+  updateOutput();
 }
-function addLetter(letter){
+
+function resetAll() {
+  sentence = "";
+  currentWord = "";
+  step = "idle";
+  predictedLetters = [];
+  predictedIndex = 0;
+  letterIndex = 0;
+  updatePrompt("Press START to begin.");
+  updateLetter("—");
+  updateOutput();
+}
+
+function addLetter(letter) {
   currentWord += letter;
-  updateStatus("Added letter: "+letter);
+  logDebug("Added letter: " + letter);
   updateOutput();
+
+  if (isExactWord(currentWord)) {
+    predictedLetters = computePredictedLetters(currentWord);
+    predictedIndex = 0;
+    step = "askNextWord";
+    updatePrompt(`Word is "${currentWord}". Next word?`);
+    return;
+  }
+
   predictedLetters = computePredictedLetters(currentWord);
-  predictedIndex=0;
-
-  if(isExactWord(currentWord)){
-    step="askNextWord";
-    updatePrompt(`Word is "${currentWord}". Next word? (YES to accept / NO to continue spelling)`);
-  } else if(predictedLetters.length>0){
-    step="predictLetter";
-    updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`);
-  } else { step="askVowel"; updatePrompt("No predictions. Is it a vowel? (YES/NO)"); }
-  updateOutput();
-}
-
-function handleYes(){
-  switch(step){
-    case "askStart": start(); break;
-    case "askVowel": step="vowel"; letterIndex=0; showNextLetter(); break;
-    case "vowel": addLetter(vowels[letterIndex]); break;
-    case "consonant": addLetter(consonants[letterIndex]); break;
-    case "predictLetter": if(predictedLetters[predictedIndex]) addLetter(predictedLetters[predictedIndex]); else { step="askVowel"; updatePrompt("Prediction missing. Is it a vowel?"); } break;
-    case "askNextWord": sentence+=currentWord+" "; if(!dictionary.includes(currentWord)) addWordToDictionary(currentWord); currentWord=""; predictedLetters=[]; predictedIndex=0; step="askVowel"; updatePrompt("Next word? (YES = vowel, NO = consonant)"); updateOutput(); break;
-    default: updateStatus("Unhandled YES in state: "+step);
+  predictedIndex = 0;
+  if (predictedLetters.length > 0) {
+    step = "predictLetter";
+    updatePrompt(`Next letter "${predictedLetters[predictedIndex]}"?`);
+    updateLetter(predictedLetters[predictedIndex]);
+  } else {
+    step = "askVowel";
+    updatePrompt("No predictions. Is it a vowel?");
+    updateLetter("?");
   }
 }
-function handleNo(){
-  switch(step){
-    case "askStart": resetAll(); break;
-    case "askVowel": step="consonant"; letterIndex=0; showNextLetter(); break;
+
+/* YES behavior */
+function handleYes() {
+  switch(step) {
+    case "askStart":
+      step = "askVowel";
+      updatePrompt("Is it a vowel?");
+      break;
+    case "askVowel":
+      step = "vowel";
+      letterIndex = 0;
+      updatePrompt("Letter?");
+      updateLetter(vowels[letterIndex]);
+      break;
     case "vowel":
-    case "consonant": letterIndex++; showNextLetter(); break;
-    case "predictLetter": predictedIndex++; if(predictedIndex<predictedLetters.length) updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`); else { predictedLetters=[]; predictedIndex=0; step="askVowel"; updatePrompt("No more predicted letters. Is it a vowel?"); } break;
-    case "askNextWord": if(!predictedLetters || predictedLetters.length===0){ predictedLetters=computePredictedLetters(currentWord); predictedIndex=0; } if(predictedLetters.length>0){ step="predictLetter"; updatePrompt(`Is next letter "${predictedLetters[predictedIndex]}"? (YES/NO)`); } else { step="askVowel"; updatePrompt("No predictions. Is it a vowel?"); } break;
-    default: updateStatus("Unhandled NO in state: "+step);
-  }
-  updateOutput();
-}
-
-/* ===================== BUTTON HOOKS ===================== */
-yesBtn.addEventListener('click', ()=>handleYes());
-noBtn.addEventListener('click', ()=>handleNo());
-calUpBtn.addEventListener('click', calibrateUp);
-calDownBtn.addEventListener('click', calibrateDown);
-
-/* ===================== FACE MESH EYE DETECTION ===================== */
-let videoElement=document.getElementById('webcam');
-let camera=null; let faceMesh=null;
-let calibUpVal=null, calibDownVal=null;
-let detectorOn=false;
-let lastTriggerTime=0;
-const TRIGGER_COOLDOWN=900;
-
-function setDetectorState(on){
-  detectorOn=on;
-  detStateEl.innerText=on?"ON":"OFF";
-  detIndicator.className="indicator "+(on?"green":"gray");
-}
-
-function computeEyeNoseDelta(landmarks){
-  if(!landmarks || landmarks.length<400) return null;
-  const leftCenterY=(landmarks[159].y+landmarks[145].y)/2;
-  const rightCenterY=(landmarks[386].y+landmarks[374].y)/2;
-  const eyeCenterY=(leftCenterY+rightCenterY)/2;
-  const nose=landmarks[1]||landmarks[4];
-  return nose.y-eyeCenterY;
-}
-
-async function initFaceMesh(){
-  faceMesh=new FaceMesh({locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
-  faceMesh.setOptions({maxNumFaces:1,refineLandmarks:true,minDetectionConfidence:0.6,minTrackingConfidence:0.6});
-  faceMesh.onResults(onFaceMeshResults);
-  camera=new Camera(videoElement,{onFrame:async()=>{await faceMesh.send({image:videoElement});},width:640,height:480});
-}
-
-function onFaceMeshResults(results){
-  if(!results.multiFaceLandmarks || results.multiFaceLandmarks.length===0){ updateStatus("Face not detected"); return; }
-  updateStatus("Face detected");
-  const landmarks=results.multiFaceLandmarks[0];
-  window.__lastFaceLandmarks=landmarks;
-  const delta=computeEyeNoseDelta(landmarks);
-  if(delta===null) return;
-  if(calibUpVal===null || calibDownVal===null){ detIndicator.className="indicator gray"; detStateEl.innerText="CALIBRATE"; return; }
-  setDetectorState(true);
-  const mid=(calibUpVal+calibDownVal)/2;
-  const range=Math.abs(calibUpVal-calibDownVal);
-  const upThresh=mid+(range*0.15);
-  const downThresh=mid-(range*0.15);
-  const now=Date.now();
-  if(delta>upThresh && now-lastTriggerTime>TRIGGER_COOLDOWN){ lastTriggerTime=now; detIndicator.className="indicator green"; detStateEl.innerText="LOOK UP → YES"; handleYes(); }
-  else if(delta<downThresh && now-lastTriggerTime>TRIGGER_COOLDOWN){ lastTriggerTime=now; detIndicator.className="indicator red"; detStateEl.innerText="LOOK DOWN → NO"; handleNo(); }
-  else { detIndicator.className="indicator gray"; detStateEl.innerText="IDLE"; }
-}
-
-/* ===================== CALIBRATION ===================== */
-function collectDeltaSamples(frameCount=20, intervalMs=60){
-  return new Promise((resolve,reject)=>{
-    const samples=[]; let collected=0; let tries=0; const maxTries=frameCount*5;
-    const t=setInterval(()=>{
-      tries++;
-      if(window.__lastFaceLandmarks){
-        const delta=computeEyeNoseDelta(window.__lastFaceLandmarks);
-        if(delta!==null){ samples.push(delta); collected++; }
+      addLetter(vowels[letterIndex]);
+      break;
+    case "consonant":
+      addLetter(consonants[letterIndex]);
+      break;
+    case "predictLetter":
+      if (predictedLetters[predictedIndex]) {
+        addLetter(predictedLetters[predictedIndex]);
       }
-      if(collected>=frameCount || tries>maxTries){ clearInterval(t); if(samples.length===0) reject("no face samples"); else resolve(samples.reduce((a,b)=>a+b,0)/samples.length); }
-    },intervalMs);
-  });
+      break;
+    case "askNextWord":
+      sentence += currentWord + " ";
+      currentWord = "";
+      predictedLetters = [];
+      step = "askVowel";
+      updatePrompt("Next word? Is it a vowel?");
+      updateLetter("?");
+      break;
+  }
 }
-function calibrateUp(){ if(!faceMesh){ updateStatus("Start camera first."); return; } updateStatus("Calibrating UP..."); collectDeltaSamples(20,40).then(avg=>{ calibUpVal=avg; updateStatus(`Calibrated UP: ${avg.toFixed(4)}`); if(calibDownVal!==null) detStateEl.innerText="CALIBRATED"; }).catch(e=>updateStatus("Calibration failed: "+e)); }
-function calibrateDown(){ if(!faceMesh){ updateStatus("Start camera first."); return; } updateStatus("Calibrating DOWN..."); collectDeltaSamples(20,40).then(avg=>{ calibDownVal=avg; updateStatus(`Calibrated DOWN: ${avg.toFixed(4)}`); if(calibUpVal!==null) detStateEl.innerText="CALIBRATED"; }).catch(e=>updateStatus("Calibration failed: "+e)); }
 
-/* ===================== INIT ===================== */
-resetAll();
-initFaceMesh();
-if(camera) camera.start();
+/* NO behavior */
+function handleNo() {
+  switch(step) {
+    case "askStart":
+      resetAll();
+      break;
+    case "askVowel":
+      step = "consonant";
+      letterIndex = 0;
+      updatePrompt("Letter?");
+      updateLetter(consonants[letterIndex]);
+      break;
+    case "vowel":
+      letterIndex++;
+      if (letterIndex < vowels.length) {
+        updateLetter(vowels[letterIndex]);
+      } else {
+        step = "askVowel";
+        updatePrompt("Is it a vowel?");
+        updateLetter("?");
+      }
+      break;
+    case "consonant":
+      letterIndex++;
+      if (letterIndex < consonants.length) {
+        updateLetter(consonants[letterIndex]);
+      } else {
+        step = "askVowel";
+        updatePrompt("Is it a vowel?");
+        updateLetter("?");
+      }
+      break;
+    case "predictLetter":
+      predictedIndex++;
+      if (predictedIndex < predictedLetters.length) {
+        updateLetter(predictedLetters[predictedIndex]);
+        updatePrompt(`Next letter "${predictedLetters[predictedIndex]}"?`);
+      } else {
+        step = "askVowel";
+        updatePrompt("No more predictions. Is it a vowel?");
+        updateLetter("?");
+      }
+      break;
+    case "askNextWord":
+      if (!predictedLetters || predictedLetters.length === 0) {
+        predictedLetters = computePredictedLetters(currentWord);
+        predictedIndex = 0;
+      }
+      if (predictedLetters.length > 0) {
+        step = "predictLetter";
+        updateLetter(predictedLetters[predictedIndex]);
+        updatePrompt(`Next letter "${predictedLetters[predictedIndex]}"?`);
+      } else {
+        step = "askVowel";
+        updatePrompt("Is it a vowel?");
+        updateLetter("?");
+      }
+      break;
+  }
+}
+
+/* ================= Eye detection (simplified with facemesh) ================= */
+let model, video;
+async function initWebcam() {
+  video = document.getElementById("webcam");
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+  video.srcObject = stream;
+  video.onloadedmetadata = () => { video.play(); };
+  model = await facemesh.load();
+  detectLoop();
+}
+
+async function detectLoop() {
+  if (!model) return;
+  const predictions = await model.estimateFaces({input: video});
+  if (predictions.length > 0) {
+    logDebug("Face detected");
+  }
+  requestAnimationFrame(detectLoop);
+}
+
+/* ================= Hookups ================= */
+document.getElementById("yesBtn").onclick = handleYes;
+document.getElementById("noBtn").onclick = handleNo;
+document.getElementById("calibUpBtn").onclick = () => logDebug("Calibrate Up clicked");
+document.getElementById("calibDownBtn").onclick = () => logDebug("Calibrate Down clicked");
+
+loadDictionary().then(start);
+initWebcam();
 </script>
 </body>
 </html>
+
 
 
 
