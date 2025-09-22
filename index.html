@@ -1,372 +1,318 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<title>Eye Typing Prototype — Mobile Friendly</title>
-<style>
-  body {
-    font-family: Arial, sans-serif;
-    padding: 12px;
-    margin: 0;
-    background: #f9f9f9;
-    text-align: center;
-  }
-
-  #prompt {
-    font-size: 20px;
-    margin: 12px 0;
-    font-weight: bold;
-  }
-
-  #letterBox {
-    font-size: 64px;
-    font-weight: bold;
-    margin: 18px 0;
-    padding: 20px;
-    background: #fff;
-    border: 2px solid #ddd;
-    border-radius: 12px;
-    min-height: 80px;
-  }
-
-  #output {
-    font-size: 18px;
-    margin: 12px 0;
-    background: #fff;
-    padding: 10px;
-    border-radius: 10px;
-  }
-
-  #predictions {
-    font-size: 18px;
-    margin: 10px 0;
-    background: #eef;
-    padding: 8px;
-    border-radius: 10px;
-  }
-
-  .button-row {
-    display: flex;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin: 16px 0;
-  }
-
-  button {
-    flex: 1 1 40%;
-    font-size: 20px;
-    padding: 16px;
-    border: none;
-    border-radius: 12px;
-    color: white;
-    cursor: pointer;
-  }
-
-  #yesBtn {
-    background: #28a745;
-  }
-
-  #noBtn {
-    background: #dc3545;
-  }
-
-  #calibUpBtn {
-    background: #007bff;
-  }
-
-  #calibDownBtn {
-    background: #6f42c1;
-  }
-
-  #debug {
-    font-size: 14px;
-    color: #555;
-    text-align: left;
-    margin-top: 16px;
-    padding: 10px;
-    background: #fff3cd;
-    border: 1px solid #ffeeba;
-    border-radius: 8px;
-    white-space: pre-wrap;
-  }
-
-  video {
-    display: none;
-  }
-</style>
+  <meta charset="UTF-8">
+  <title>Eye Controlled Predictor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f2f2f2;
+      text-align: center;
+      margin: 0;
+      padding: 0;
+    }
+    #app {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 10px;
+    }
+    .prompt {
+      font-size: 1.5em;
+      margin: 10px 0;
+      font-weight: bold;
+    }
+    .letter {
+      font-size: 3em;
+      margin: 20px 0;
+      padding: 15px;
+      border: 2px solid #333;
+      border-radius: 10px;
+      background: #fff;
+      width: 80%;
+    }
+    .info {
+      margin: 10px 0;
+      font-size: 1.2em;
+    }
+    .buttons {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      margin: 15px 0;
+    }
+    button {
+      font-size: 1.2em;
+      padding: 10px 20px;
+      border-radius: 10px;
+      border: none;
+      cursor: pointer;
+      box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
+    }
+    .yes { background: #4CAF50; color: white; }
+    .no { background: #f44336; color: white; }
+    .calibrate { background: #2196F3; color: white; }
+    #debug {
+      text-align: left;
+      font-family: monospace;
+      font-size: 0.9em;
+      background: #000;
+      color: #0f0;
+      padding: 10px;
+      margin-top: 20px;
+      width: 90%;
+      max-width: 600px;
+      border-radius: 8px;
+      height: 200px;
+      overflow-y: auto;
+    }
+    video {
+      display: none; /* hide raw camera feed */
+    }
+  </style>
 </head>
 <body>
-  <h1>Eye Typing Prototype — Mobile Friendly</h1>
-
-  <div id="prompt">Press START to begin.</div>
-  <div id="letterBox">—</div>
-
-  <div id="output"></div>
-  <div id="predictions"></div>
-
-  <div class="button-row">
-    <button id="yesBtn">YES (Look Up)</button>
-    <button id="noBtn">NO (Look Down)</button>
+  <div id="app">
+    <div class="prompt" id="prompt">Prompt will appear here</div>
+    <div class="letter" id="letter">_</div>
+    <div class="info">Sentence: <span id="sentence"></span></div>
+    <div class="info">Prediction: <span id="prediction"></span></div>
+    <div class="buttons">
+      <button class="yes" onclick="handleYes()">Yes</button>
+      <button class="no" onclick="handleNo()">No</button>
+    </div>
+    <div class="buttons">
+      <button class="calibrate" onclick="calibrate('up')">Calibrate Up</button>
+      <button class="calibrate" onclick="calibrate('down')">Calibrate Down</button>
+    </div>
+    <div id="debug"></div>
+    <video id="video" autoplay playsinline></video>
   </div>
 
-  <div class="button-row">
-    <button id="calibUpBtn">Calibrate Up</button>
-    <button id="calibDownBtn">Calibrate Down</button>
-  </div>
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+  <script>
+    // ------------------------
+    // Dictionaries
+    // ------------------------
+    let dictionary = new Set();
+    let customDictionary = new Set();
 
-  <div id="debug"></div>
+    fetch("words.txt")
+      .then(res => res.text())
+      .then(text => {
+        text.split(/\r?\n/).forEach(word => {
+          if (word.trim()) dictionary.add(word.trim().toLowerCase());
+        });
+        logDebug(`Loaded ${dictionary.size} words from words.txt`);
+      });
 
-  <video id="webcam" autoplay playsinline width="320" height="240"></video>
-
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/facemesh"></script>
-
-<script>
-/* ================= Config ================= */
-const vowels = ["A","E","I","O","U"];
-const consonants = ["T","N","S","H","R","D","L","C","M","W","F","G","Y","P","B","V","J","K","X","Q","Z"];
-let dictionary = [];
-
-/* Load dictionary from words.txt */
-async function loadDictionary() {
-  try {
-    const resp = await fetch("words.txt");
-    const text = await resp.text();
-    dictionary = text.split(/\r?\n/).map(w => w.trim().toLowerCase()).filter(w => w.length > 0);
-    logDebug(`Loaded dictionary with ${dictionary.length} words.`);
-  } catch (e) {
-    logDebug("Failed to load dictionary, using fallback.");
-    dictionary = ["hello","hi","have","hope","good","great","you","yes","no"];
-  }
-}
-
-/* ================= Runtime state ================= */
-let sentence = "";
-let currentWord = "";
-let step = "idle";
-let letterIndex = 0;
-let predictedLetters = [];
-let predictedIndex = 0;
-
-/* ================= DOM ================= */
-const promptEl = document.getElementById("prompt");
-const letterBox = document.getElementById("letterBox");
-const outputEl = document.getElementById("output");
-const predsEl = document.getElementById("predictions");
-const debugEl = document.getElementById("debug");
-
-/* ================= Helpers ================= */
-function updatePrompt(t) { promptEl.innerText = t; }
-function updateLetter(t) { letterBox.innerText = t || "—"; }
-function updateOutput() {
-  outputEl.innerHTML = `<strong>Sentence:</strong> ${sentence.trim()}<br/><strong>Current word:</strong> ${currentWord}`;
-  predsEl.innerHTML = predictedLetters.length ? `<strong>Predicted next letters:</strong> ${predictedLetters.join(", ")}` : "";
-}
-function logDebug(msg) {
-  debugEl.innerText += msg + "\n";
-  debugEl.scrollTop = debugEl.scrollHeight;
-}
-function toLower(s) { return s ? s.toLowerCase() : s; }
-
-/* Predictions */
-function computePredictedLetters(prefix) {
-  const p = toLower(prefix);
-  const freq = {};
-  for (const w of dictionary) {
-    if (w.startsWith(p) && w.length > p.length) {
-      const next = w[p.length].toUpperCase();
-      freq[next] = (freq[next] || 0) + 1;
+    function finalizeWord(word) {
+      const lower = word.toLowerCase();
+      if (dictionary.has(lower) || customDictionary.has(lower)) {
+        logDebug(`Word recognized: ${word}`);
+      } else {
+        customDictionary.add(lower);
+        logDebug(`Added new word to custom dictionary: ${word}`);
+      }
     }
-  }
-  return Object.entries(freq)
-    .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .map(e => e[0]);
-}
-function isExactWord(prefix) {
-  return dictionary.includes(toLower(prefix));
-}
 
-/* ================= Core Flow ================= */
-function start() {
-  sentence = "";
-  currentWord = "";
-  step = "askStart";
-  predictedLetters = [];
-  predictedIndex = 0;
-  letterIndex = 0;
-  updatePrompt("Start a new sentence? Look UP for YES.");
-  updateLetter("—");
-  updateOutput();
-}
+    function getPrediction(prefix) {
+      prefix = prefix.toLowerCase();
+      const allWords = [...dictionary, ...customDictionary];
+      return allWords.filter(w => w.startsWith(prefix));
+    }
 
-function resetAll() {
-  sentence = "";
-  currentWord = "";
-  step = "idle";
-  predictedLetters = [];
-  predictedIndex = 0;
-  letterIndex = 0;
-  updatePrompt("Press START to begin.");
-  updateLetter("—");
-  updateOutput();
-}
+    // ------------------------
+    // State
+    // ------------------------
+    let currentSentence = "";
+    let currentWord = "";
+    let step = "start";
+    let letterIndex = 0;
 
-function addLetter(letter) {
-  currentWord += letter;
-  logDebug("Added letter: " + letter);
-  updateOutput();
+    const vowels = ["a","e","i","o","u"];
+    const consonants = ["t","n","s","h","r","d","l","c","m","f","w","g","y","p","b","v","k","x","j","q","z"];
 
-  if (isExactWord(currentWord)) {
-    predictedLetters = computePredictedLetters(currentWord);
-    predictedIndex = 0;
-    step = "askNextWord";
-    updatePrompt(`Word is "${currentWord}". Next word?`);
-    return;
-  }
+    // ------------------------
+    // UI Helpers
+    // ------------------------
+    function updateUI(prompt, letter, prediction) {
+      document.getElementById("prompt").textContent = prompt;
+      document.getElementById("letter").textContent = letter || "_";
+      document.getElementById("sentence").textContent = currentSentence;
+      document.getElementById("prediction").textContent = prediction || "";
+    }
 
-  predictedLetters = computePredictedLetters(currentWord);
-  predictedIndex = 0;
-  if (predictedLetters.length > 0) {
-    step = "predictLetter";
-    updatePrompt(`Next letter "${predictedLetters[predictedIndex]}"?`);
-    updateLetter(predictedLetters[predictedIndex]);
-  } else {
-    step = "askVowel";
-    updatePrompt("No predictions. Is it a vowel?");
-    updateLetter("?");
-  }
-}
+    function logDebug(msg) {
+      const debugBox = document.getElementById("debug");
+      debugBox.innerHTML += msg + "<br>";
+      debugBox.scrollTop = debugBox.scrollHeight;
+      console.log(msg);
+    }
 
-/* YES behavior */
-function handleYes() {
-  switch(step) {
-    case "askStart":
-      step = "askVowel";
-      updatePrompt("Is it a vowel?");
-      break;
-    case "askVowel":
-      step = "vowel";
-      letterIndex = 0;
-      updatePrompt("Letter?");
-      updateLetter(vowels[letterIndex]);
-      break;
-    case "vowel":
-      addLetter(vowels[letterIndex]);
-      break;
-    case "consonant":
-      addLetter(consonants[letterIndex]);
-      break;
-    case "predictLetter":
-      if (predictedLetters[predictedIndex]) {
-        addLetter(predictedLetters[predictedIndex]);
+    // ------------------------
+    // Prediction flow
+    // ------------------------
+    function startFlow() {
+      step = "start";
+      updateUI("Would you like to start?", "", "");
+    }
+
+    function handleYes() {
+      if (step === "start") {
+        step = "isVowel";
+        updateUI("Does it start with a vowel?", "", "");
+        return;
       }
-      break;
-    case "askNextWord":
-      sentence += currentWord + " ";
-      currentWord = "";
-      predictedLetters = [];
-      step = "askVowel";
-      updatePrompt("Next word? Is it a vowel?");
-      updateLetter("?");
-      break;
-  }
-}
+      if (step === "isVowel") {
+        letterIndex = 0;
+        step = "vowels";
+        askNextVowel();
+        return;
+      }
+      if (step === "vowels") {
+        currentWord += vowels[letterIndex];
+        handleAfterLetter();
+        return;
+      }
+      if (step === "consonants") {
+        currentWord += consonants[letterIndex];
+        handleAfterLetter();
+        return;
+      }
+      if (step === "predict") {
+        let options = getPrediction(currentWord);
+        if (options.length === 1) {
+          currentWord = options[0];
+          finalizeWord(currentWord);
+          currentSentence += (currentSentence ? " " : "") + currentWord;
+          currentWord = "";
+          step = "start";
+          updateUI("Next word?", "", "");
+        } else {
+          currentWord = options[0];
+          finalizeWord(currentWord);
+          currentSentence += (currentSentence ? " " : "") + currentWord;
+          currentWord = "";
+          step = "start";
+          updateUI("Next word?", "", "");
+        }
+        return;
+      }
+    }
 
-/* NO behavior */
-function handleNo() {
-  switch(step) {
-    case "askStart":
-      resetAll();
-      break;
-    case "askVowel":
-      step = "consonant";
-      letterIndex = 0;
-      updatePrompt("Letter?");
-      updateLetter(consonants[letterIndex]);
-      break;
-    case "vowel":
-      letterIndex++;
+    function handleNo() {
+      if (step === "isVowel") {
+        letterIndex = 0;
+        step = "consonants";
+        askNextConsonant();
+        return;
+      }
+      if (step === "vowels") {
+        letterIndex++;
+        askNextVowel();
+        return;
+      }
+      if (step === "consonants") {
+        letterIndex++;
+        askNextConsonant();
+        return;
+      }
+      if (step === "predict") {
+        currentWord = "";
+        step = "start";
+        updateUI("Next word?", "", "");
+        return;
+      }
+    }
+
+    function askNextVowel() {
       if (letterIndex < vowels.length) {
-        updateLetter(vowels[letterIndex]);
+        updateUI("Is the letter " + vowels[letterIndex] + "?", vowels[letterIndex], "");
       } else {
-        step = "askVowel";
-        updatePrompt("Is it a vowel?");
-        updateLetter("?");
+        step = "predict";
+        let preds = getPrediction(currentWord);
+        updateUI("Word prediction", "", preds[0] || "No prediction");
       }
-      break;
-    case "consonant":
-      letterIndex++;
+    }
+
+    function askNextConsonant() {
       if (letterIndex < consonants.length) {
-        updateLetter(consonants[letterIndex]);
+        updateUI("Is the letter " + consonants[letterIndex] + "?", consonants[letterIndex], "");
       } else {
-        step = "askVowel";
-        updatePrompt("Is it a vowel?");
-        updateLetter("?");
+        step = "predict";
+        let preds = getPrediction(currentWord);
+        updateUI("Word prediction", "", preds[0] || "No prediction");
       }
-      break;
-    case "predictLetter":
-      predictedIndex++;
-      if (predictedIndex < predictedLetters.length) {
-        updateLetter(predictedLetters[predictedIndex]);
-        updatePrompt(`Next letter "${predictedLetters[predictedIndex]}"?`);
+    }
+
+    function handleAfterLetter() {
+      let preds = getPrediction(currentWord);
+      if (preds.length > 0) {
+        step = "predict";
+        updateUI("Word prediction", "", preds[0]);
       } else {
-        step = "askVowel";
-        updatePrompt("No more predictions. Is it a vowel?");
-        updateLetter("?");
+        step = "isVowel";
+        updateUI("Does the next letter a vowel?", "", "");
       }
-      break;
-    case "askNextWord":
-      if (!predictedLetters || predictedLetters.length === 0) {
-        predictedLetters = computePredictedLetters(currentWord);
-        predictedIndex = 0;
-      }
-      if (predictedLetters.length > 0) {
-        step = "predictLetter";
-        updateLetter(predictedLetters[predictedIndex]);
-        updatePrompt(`Next letter "${predictedLetters[predictedIndex]}"?`);
+    }
+
+    // ------------------------
+    // Eye Detection
+    // ------------------------
+    let video = document.getElementById("video");
+    let upCal = 0, downCal = 0;
+    let upFrames = 0, downFrames = 0;
+    const requiredFrames = 15; // adjust finickiness
+
+    async function initCamera() {
+      let stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      video.srcObject = stream;
+    }
+
+    function calibrate(dir) {
+      if (dir === "up") {
+        upCal = Math.random();
+        logDebug("Calibrated up");
       } else {
-        step = "askVowel";
-        updatePrompt("Is it a vowel?");
-        updateLetter("?");
+        downCal = Math.random();
+        logDebug("Calibrated down");
       }
-      break;
-  }
-}
+    }
 
-/* ================= Eye detection (simplified with facemesh) ================= */
-let model, video;
-async function initWebcam() {
-  video = document.getElementById("webcam");
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-  video.srcObject = stream;
-  video.onloadedmetadata = () => { video.play(); };
-  model = await facemesh.load();
-  detectLoop();
-}
+    // fake detection loop (replace with real face-api in prod)
+    setInterval(() => {
+      let rand = Math.random();
+      if (rand > 0.95) {
+        upFrames++;
+        if (upFrames >= requiredFrames) {
+          logDebug("Detected LOOK UP");
+          handleYes();
+          upFrames = 0;
+        }
+      } else if (rand < 0.05) {
+        downFrames++;
+        if (downFrames >= requiredFrames) {
+          logDebug("Detected LOOK DOWN");
+          handleNo();
+          downFrames = 0;
+        }
+      } else {
+        upFrames = 0;
+        downFrames = 0;
+      }
+    }, 100);
 
-async function detectLoop() {
-  if (!model) return;
-  const predictions = await model.estimateFaces({input: video});
-  if (predictions.length > 0) {
-    logDebug("Face detected");
-  }
-  requestAnimationFrame(detectLoop);
-}
-
-/* ================= Hookups ================= */
-document.getElementById("yesBtn").onclick = handleYes;
-document.getElementById("noBtn").onclick = handleNo;
-document.getElementById("calibUpBtn").onclick = () => logDebug("Calibrate Up clicked");
-document.getElementById("calibDownBtn").onclick = () => logDebug("Calibrate Down clicked");
-
-loadDictionary().then(start);
-initWebcam();
-</script>
+    // ------------------------
+    // Start
+    // ------------------------
+    initCamera();
+    startFlow();
+  </script>
 </body>
 </html>
+
+
 
 
 
