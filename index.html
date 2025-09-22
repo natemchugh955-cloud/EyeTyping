@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Eye Controlled Predictor</title>
+  <title>Eye Controlled Letter Predictor</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -76,7 +76,7 @@
     <div class="prompt" id="prompt">Prompt will appear here</div>
     <div class="letter" id="letter">_</div>
     <div class="info">Sentence: <span id="sentence"></span></div>
-    <div class="info">Prediction: <span id="prediction"></span></div>
+    <div class="info">Predicted Next Letter: <span id="prediction"></span></div>
     <div class="buttons">
       <button class="yes" onclick="handleYes()">Yes</button>
       <button class="no" onclick="handleNo()">No</button>
@@ -89,7 +89,6 @@
     <video id="video" autoplay playsinline></video>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
   <script>
     // ------------------------
     // Dictionaries
@@ -116,10 +115,18 @@
       }
     }
 
-    function getPrediction(prefix) {
+    function getNextLetterPrediction(prefix) {
       prefix = prefix.toLowerCase();
       const allWords = [...dictionary, ...customDictionary];
-      return allWords.filter(w => w.startsWith(prefix));
+      let freq = {};
+      allWords.forEach(w => {
+        if (w.startsWith(prefix) && w.length > prefix.length) {
+          let nextChar = w[prefix.length];
+          freq[nextChar] = (freq[nextChar] || 0) + 1;
+        }
+      });
+      let sorted = Object.entries(freq).sort((a,b)=>b[1]-a[1]);
+      return sorted.length > 0 ? sorted.map(x=>x[0].toUpperCase()) : [];
     }
 
     // ------------------------
@@ -130,8 +137,8 @@
     let step = "start";
     let letterIndex = 0;
 
-    const vowels = ["a","e","i","o","u"];
-    const consonants = ["t","n","s","h","r","d","l","c","m","f","w","g","y","p","b","v","k","x","j","q","z"];
+    const vowels = ["A","E","I","O","U"];
+    const consonants = ["T","N","S","H","R","D","L","C","M","F","W","G","Y","P","B","V","K","X","J","Q","Z"];
 
     // ------------------------
     // UI Helpers
@@ -172,25 +179,20 @@
       }
       if (step === "vowels") {
         currentWord += vowels[letterIndex];
-        handleAfterLetter();
+        afterLetter();
         return;
       }
       if (step === "consonants") {
         currentWord += consonants[letterIndex];
-        handleAfterLetter();
+        afterLetter();
         return;
       }
       if (step === "predict") {
-        let options = getPrediction(currentWord);
-        if (options.length === 1) {
-          currentWord = options[0];
-          finalizeWord(currentWord);
-          currentSentence += (currentSentence ? " " : "") + currentWord;
-          currentWord = "";
-          step = "start";
-          updateUI("Next word?", "", "");
+        let preds = getNextLetterPrediction(currentWord);
+        if (preds.length > 0) {
+          currentWord += preds[0];
+          afterLetter();
         } else {
-          currentWord = options[0];
           finalizeWord(currentWord);
           currentSentence += (currentSentence ? " " : "") + currentWord;
           currentWord = "";
@@ -219,6 +221,8 @@
         return;
       }
       if (step === "predict") {
+        finalizeWord(currentWord);
+        currentSentence += (currentSentence ? " " : "") + currentWord;
         currentWord = "";
         step = "start";
         updateUI("Next word?", "", "");
@@ -231,8 +235,8 @@
         updateUI("Is the letter " + vowels[letterIndex] + "?", vowels[letterIndex], "");
       } else {
         step = "predict";
-        let preds = getPrediction(currentWord);
-        updateUI("Word prediction", "", preds[0] || "No prediction");
+        let preds = getNextLetterPrediction(currentWord);
+        updateUI("Predicting next letter", "", preds[0] || "No prediction");
       }
     }
 
@@ -241,59 +245,54 @@
         updateUI("Is the letter " + consonants[letterIndex] + "?", consonants[letterIndex], "");
       } else {
         step = "predict";
-        let preds = getPrediction(currentWord);
-        updateUI("Word prediction", "", preds[0] || "No prediction");
+        let preds = getNextLetterPrediction(currentWord);
+        updateUI("Predicting next letter", "", preds[0] || "No prediction");
       }
     }
 
-    function handleAfterLetter() {
-      let preds = getPrediction(currentWord);
+    function afterLetter() {
+      let preds = getNextLetterPrediction(currentWord);
       if (preds.length > 0) {
         step = "predict";
-        updateUI("Word prediction", "", preds[0]);
+        updateUI("Predicting next letter", "", preds[0]);
       } else {
-        step = "isVowel";
-        updateUI("Does the next letter a vowel?", "", "");
+        // Word might be finished
+        if (dictionary.has(currentWord.toLowerCase()) || customDictionary.has(currentWord.toLowerCase())) {
+          finalizeWord(currentWord);
+          currentSentence += (currentSentence ? " " : "") + currentWord;
+          currentWord = "";
+          step = "start";
+          updateUI("Next word?", "", "");
+        } else {
+          step = "isVowel";
+          updateUI("Does the next letter start with a vowel?", "", "");
+        }
       }
     }
 
     // ------------------------
-    // Eye Detection
+    // Eye Detection (simplified stub)
     // ------------------------
-    let video = document.getElementById("video");
-    let upCal = 0, downCal = 0;
     let upFrames = 0, downFrames = 0;
-    const requiredFrames = 15; // adjust finickiness
-
-    async function initCamera() {
-      let stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      video.srcObject = stream;
-    }
+    const requiredFrames = 15;
 
     function calibrate(dir) {
-      if (dir === "up") {
-        upCal = Math.random();
-        logDebug("Calibrated up");
-      } else {
-        downCal = Math.random();
-        logDebug("Calibrated down");
-      }
+      logDebug(`Calibrated ${dir}`);
     }
 
-    // fake detection loop (replace with real face-api in prod)
     setInterval(() => {
       let rand = Math.random();
-      if (rand > 0.95) {
+      if (rand > 0.97) {
         upFrames++;
         if (upFrames >= requiredFrames) {
-          logDebug("Detected LOOK UP");
+          logDebug("Detected LOOK UP (YES)");
           handleYes();
           upFrames = 0;
         }
-      } else if (rand < 0.05) {
+      } else if (rand < 0.03) {
         downFrames++;
         if (downFrames >= requiredFrames) {
-          logDebug("Detected LOOK DOWN");
+          logDebug("Detected LOOK DOWN (NO)");
           handleNo();
           downFrames = 0;
         }
@@ -306,11 +305,11 @@
     // ------------------------
     // Start
     // ------------------------
-    initCamera();
     startFlow();
   </script>
 </body>
 </html>
+
 
 
 
