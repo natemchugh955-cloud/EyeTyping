@@ -1,102 +1,191 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Eye Controlled Letter Predictor</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #f2f2f2;
-      text-align: center;
-      margin: 0;
-      padding: 0;
+    :root{
+      --pad:14px;
     }
-    #app {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 10px;
+    *{box-sizing:border-box}
+    body{
+      font-family: system-ui, Arial, sans-serif;
+      background:#f2f2f2;
+      color:#111;
+      margin:0;
+      padding:0;
+      text-align:center;
     }
-    .prompt {
-      font-size: 1.5em;
-      margin: 10px 0;
-      font-weight: bold;
+    #app{
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:12px;
+      padding:var(--pad);
+      max-width:720px;
+      margin:0 auto;
     }
-    .letter {
-      font-size: 3em;
-      margin: 20px 0;
-      padding: 15px;
-      border: 2px solid #333;
-      border-radius: 10px;
-      background: #fff;
-      width: 80%;
-      min-height: 1.2em;
+    .prompt{
+      font-weight:700;
+      /* scalable on phones */
+      font-size: clamp(18px, 5vw, 28px);
+      margin-top:6px;
     }
-    .info {
-      margin: 10px 0;
-      font-size: 1.2em;
+    .letter{
+      width:100%;
+      background:#fff;
+      border:2px solid #333;
+      border-radius:12px;
+      padding:16px;
+      /* big readable letter */
+      font-size: clamp(40px, 14vw, 96px);
+      line-height:1;
+      min-height:1.2em;
     }
-    .buttons {
-      display: flex;
-      justify-content: center;
-      gap: 15px;
-      margin: 15px 0;
-      width: 90%;
-      max-width: 600px;
+    .info{
+      width:100%;
+      background:#fff;
+      border-radius:10px;
+      padding:10px 12px;
+      font-size: clamp(16px, 4.2vw, 20px);
+      text-align:left;
     }
-    button {
-      font-size: 1.2em;
-      padding: 10px 20px;
-      border-radius: 10px;
-      border: none;
-      cursor: pointer;
-      box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
-      flex: 1 1 48%;
+    .labels{
+      font-weight:600;
     }
-    .yes { background: #4CAF50; color: white; }
-    .no { background: #f44336; color: white; }
-    .calibrate { background: #2196F3; color: white; }
-    #debug {
-      text-align: left;
-      font-family: monospace;
-      font-size: 0.9em;
-      background: #000;
-      color: #0f0;
-      padding: 10px;
-      margin-top: 20px;
-      width: 90%;
-      max-width: 600px;
-      border-radius: 8px;
-      height: 200px;
-      overflow-y: auto;
+    .buttons{
+      display:flex;
+      gap:12px;
+      width:100%;
     }
-    video { display: none; } /* hide raw camera feed */
+    button{
+      flex:1 1 50%;
+      padding:16px 14px;
+      font-size: clamp(18px, 5vw, 22px);
+      border:none;
+      border-radius:12px;
+      color:#fff;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+      cursor:pointer;
+      touch-action: manipulation;
+    }
+    .yes{ background:#2e7d32; }
+    .no{ background:#c62828; }
+    .cal{ background:#1565c0; }
+    .cal.secondary{ background:#6f42c1; }
+    .row{ display:flex; gap:12px; width:100%; }
+    .row > button{ flex:1 1 50%; }
+
+    /* Debug panel */
+    #debug{
+      width:100%;
+      background:#0b0b0b;
+      color:#0f0;
+      text-align:left;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: clamp(12px, 3.5vw, 14px);
+      border-radius:10px;
+      padding:10px;
+      white-space:pre-wrap;
+      max-height:280px;
+      overflow:auto;
+    }
+    /* Tiny live status chips */
+    .chips{ display:flex; gap:8px; width:100%; flex-wrap:wrap; justify-content:center; }
+    .chip{
+      background:#fff;
+      border:1px solid #ddd;
+      border-radius:999px;
+      padding:6px 10px;
+      font-size: clamp(12px, 3.5vw, 14px);
+    }
+
+    /* Video preview (small) for alignment debugging */
+    #webcamWrap{
+      width:100%;
+      display:flex;
+      justify-content:center;
+    }
+    video{
+      width:100%;
+      max-width:360px;
+      border-radius:10px;
+      border:1px solid #ccc;
+      display:none; /* set to block if you want to see the feed */
+    }
+
+    /* Controls row for sensitivity */
+    .controls{
+      display:flex; gap:10px; width:100%; align-items:center; justify-content:center; flex-wrap:wrap;
+      background:#fff; border-radius:10px; padding:8px 10px; border:1px solid #e8e8e8;
+      font-size: clamp(13px, 3.8vw, 15px);
+    }
+    .controls label{ display:flex; align-items:center; gap:6px; }
+    .controls input[type="range"]{ width:150px; }
   </style>
 </head>
 <body>
   <div id="app">
-    <div class="prompt" id="prompt">Prompt will appear here</div>
+    <div class="prompt" id="prompt">Would you like to start?</div>
     <div class="letter" id="letter">_</div>
-    <div class="info">Sentence: <span id="sentence"></span></div>
-    <div class="info">Predicted Next Letter: <span id="prediction"></span></div>
+
+    <div class="info">
+      <div class="labels">Sentence:</div>
+      <div id="sentence"></div>
+    </div>
+
+    <div class="info">
+      <div class="labels">Predicted Next Letter:</div>
+      <div id="prediction"></div>
+    </div>
 
     <div class="buttons">
       <button class="yes" id="yesBtn">Yes</button>
       <button class="no" id="noBtn">No</button>
     </div>
-    <div class="buttons">
-      <button class="calibrate" onclick="calibrate('up')">Calibrate Up</button>
-      <button class="calibrate" onclick="calibrate('down')">Calibrate Down</button>
+
+    <div class="row">
+      <button class="cal" id="calUpBtn">Calibrate Up</button>
+      <button class="cal secondary" id="calDownBtn">Calibrate Down</button>
+    </div>
+
+    <div class="controls">
+      <label>Hold Frames
+        <input type="range" id="holdFrames" min="5" max="30" value="15">
+        <span id="holdFramesVal">15</span>
+      </label>
+      <label>Sensitivity
+        <input type="range" id="sens" min="5" max="40" value="15">
+        <span id="sensVal">0.15</span>
+      </label>
+      <label><input type="checkbox" id="showVideo"> Show camera preview</label>
+    </div>
+
+    <div class="chips">
+      <span class="chip" id="chipFace">Face: —</span>
+      <span class="chip" id="chipState">Eye: —</span>
+      <span class="chip" id="chipFPS">FPS: —</span>
+      <span class="chip" id="chipHolds">Holds U/D: 0/0</span>
+      <span class="chip" id="chipDelta">Δ: —</span>
+      <span class="chip" id="chipThresh">↑/↓: — / —</span>
     </div>
 
     <div id="debug"></div>
-    <video id="video" autoplay playsinline></video>
+
+    <div id="webcamWrap">
+      <video id="webcam" autoplay playsinline></video>
+    </div>
   </div>
+
+  <!-- MediaPipe (FaceMesh + Camera utils) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 
   <script>
     /* ================= Dictionaries ================= */
     let dictionary = new Set();
-    let customDictionary = new Set(); // session-only, grows when you confirm out-of-file words
+    let customDictionary = new Set(); // session additions
 
     fetch("words.txt")
       .then(res => res.text())
@@ -104,307 +193,385 @@
         text.split(/\r?\n/).forEach(word => {
           if (word.trim()) dictionary.add(word.trim().toLowerCase());
         });
-        logDebug(`Loaded ${dictionary.size} words from words.txt`);
+        logDebug(\`Loaded \${dictionary.size} words from words.txt\`);
       })
       .catch(() => {
-        // small fallback
         ["hello","hi","have","hope","good","great","you","yes","no"].forEach(w=>dictionary.add(w));
         logDebug("Failed to load words.txt; using fallback dictionary.");
       });
 
-    function finalizeWordStoreIfNeeded(word) {
+    function finalizeWordStoreIfNeeded(word){
       const lower = word.toLowerCase();
-      if (!dictionary.has(lower) && !customDictionary.has(lower)) {
+      if(!dictionary.has(lower) && !customDictionary.has(lower)){
         customDictionary.add(lower);
-        logDebug(`Added new word to custom dictionary (session): "${word}"`);
+        logDebug(\`[DICT] Added new (session) word: "\${word}"\`);
       } else {
-        logDebug(`Word recognized (already known): "${word}"`);
+        logDebug(\`[DICT] Word already known: "\${word}"\`);
       }
     }
 
-    /* ================= State ================= */
-    let currentSentence = "";
-    let currentWord = "";
-    let step = "start";
-
-    const vowels = ["A","E","I","O","U"];
-    const consonants = ["T","N","S","H","R","D","L","C","M","F","W","G","Y","P","B","V","K","X","J","Q","Z"];
-
-    let letterIndex = 0;                 // index while scanning vowels/consonants
-    let predictedLetters = [];           // current list of predicted next letters (uppercase)
-    let predictedIndex = 0;              // which predicted letter we're currently asking about
-
-    /* ================= UI Helpers ================= */
+    /* ================= UI & State ================= */
     const promptEl = document.getElementById("prompt");
     const letterEl = document.getElementById("letter");
     const sentenceEl = document.getElementById("sentence");
     const predictionEl = document.getElementById("prediction");
     const debugEl = document.getElementById("debug");
 
-    function updateUI(prompt, letter, predicted) {
-      if (prompt !== undefined) promptEl.textContent = prompt;
-      if (letter !== undefined) letterEl.textContent = letter || "_";
+    const yesBtn = document.getElementById("yesBtn");
+    const noBtn  = document.getElementById("noBtn");
+    const calUpBtn = document.getElementById("calUpBtn");
+    const calDownBtn = document.getElementById("calDownBtn");
+
+    const chipFace = document.getElementById("chipFace");
+    const chipState = document.getElementById("chipState");
+    const chipFPS = document.getElementById("chipFPS");
+    const chipHolds = document.getElementById("chipHolds");
+    const chipDelta = document.getElementById("chipDelta");
+    const chipThresh = document.getElementById("chipThresh");
+
+    function updateUI(prompt, letter, predicted){
+      if(prompt !== undefined) promptEl.textContent = prompt;
+      if(letter !== undefined) letterEl.textContent = letter || "_";
       sentenceEl.textContent = currentSentence;
       predictionEl.textContent = predicted || "";
     }
-
-    function logDebug(msg) {
-      debugEl.innerHTML += msg + "<br>";
+    function logDebug(msg){
+      debugEl.innerHTML += msg + "\\n";
       debugEl.scrollTop = debugEl.scrollHeight;
-      console.log(msg);
     }
 
-    function isKnownWord(w) {
+    let currentSentence = "";
+    let currentWord = "";
+    let step = "start";
+    const vowels = ["A","E","I","O","U"];
+    const consonants = ["T","N","S","H","R","D","L","C","M","F","W","G","Y","P","B","V","K","X","J","Q","Z"];
+    let letterIndex = 0;
+    let predictedLetters = [];
+    let predictedIndex = 0;
+
+    function isKnownWord(w){
       const lower = w.toLowerCase();
       return dictionary.has(lower) || customDictionary.has(lower);
     }
 
-    /* ======== Next-letter predictions (letters, not words) ======== */
-    function computePredictedLetters(prefix) {
+    function computePredictedLetters(prefix){
       const p = prefix.toLowerCase();
-      const allWords = [...dictionary, ...customDictionary];
+      const all = [...dictionary, ...customDictionary];
       const freq = {};
-      for (const w of allWords) {
-        if (w.startsWith(p) && w.length > p.length) {
+      for(const w of all){
+        if(w.startsWith(p) && w.length > p.length){
           const ch = w[p.length].toUpperCase();
           freq[ch] = (freq[ch] || 0) + 1;
         }
       }
-      // sort by frequency desc, tie-breaker alphabetically
-      return Object.entries(freq)
-        .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-        .map(x => x[0]);
+      return Object.entries(freq).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0])).map(([k])=>k);
     }
 
-    /* ================= Flow ================= */
-    function startFlow() {
-      step = "start";
-      updateUI("Would you like to start?", "_", "");
-      currentWord = "";
+    function startFlow(){
+      step="start";
+      currentWord="";
+      updateUI("Would you like to start?","_","");
     }
 
-    // After any confirmed letter, decide what to ask next
-    function afterLetterAdded() {
-      // If the partial is an exact known word, pause and ask to move on
-      if (isKnownWord(currentWord)) {
-        step = "askNextWord";
-        predictedLetters = [];
-        predictedIndex = 0;
-        updateUI(`Word is "${currentWord}". Next word?`, currentWord.slice(-1).toUpperCase(), "");
+    function afterLetterAdded(){
+      if(isKnownWord(currentWord)){
+        step="askNextWord";
+        predictedLetters=[];
+        predictedIndex=0;
+        updateUI(\`Word is "\${currentWord}". Next word?\`, currentWord.slice(-1).toUpperCase(), "");
         return;
       }
-
-      // Otherwise, try predicted next letters first
       predictedLetters = computePredictedLetters(currentWord);
       predictedIndex = 0;
-
-      if (predictedLetters.length > 0) {
-        step = "predict";
-        updateUI(`Is next letter "${predictedLetters[predictedIndex]}"?`, predictedLetters[predictedIndex], predictedLetters[predictedIndex]);
-        return;
+      if(predictedLetters.length){
+        step="predict";
+        const p = predictedLetters[predictedIndex];
+        updateUI(\`Is next letter "\${p}"?\`, p, p);
+      }else{
+        step="isVowel";
+        letterIndex=0;
+        updateUI("Does the next letter start with a vowel?","_","");
       }
-
-      // No predictions → fall back to vowel/consonant question
-      step = "isVowel";
-      letterIndex = 0;
-      updateUI("Does the next letter start with a vowel?", "_", "");
     }
 
-    // Ask next vowel in order
-    function askNextVowel() {
-      if (letterIndex < vowels.length) {
-        updateUI(`Is the letter ${vowels[letterIndex]}?`, vowels[letterIndex], "");
-      } else {
-        // Switch to consonant scan after finishing vowels
-        step = "consonants";
-        letterIndex = 0;
+    function askNextVowel(){
+      if(letterIndex < vowels.length){
+        const L = vowels[letterIndex];
+        updateUI(\`Is the letter \${L}?\`, L, "");
+      }else{
+        step="consonants";
+        letterIndex=0;
         askNextConsonant();
       }
     }
-
-    // Ask next consonant in order
-    function askNextConsonant() {
-      if (letterIndex < consonants.length) {
-        updateUI(`Is the letter ${consonants[letterIndex]}?`, consonants[letterIndex], "");
-      } else {
-        // We've exhausted both vowels and consonants without success → ask to end the word
-        step = "confirmEndWord";
-        updateUI(`End word "${currentWord}"?`, "✔", "");
+    function askNextConsonant(){
+      if(letterIndex < consonants.length){
+        const L = consonants[letterIndex];
+        updateUI(\`Is the letter \${L}?\`, L, "");
+      }else{
+        step="confirmEndWord";
+        updateUI(\`End word "\${currentWord}"?\`, "✔", "");
       }
     }
 
-    /* ================= YES / NO handlers ================= */
-    function handleYes() {
-      switch (step) {
+    function handleYes(){
+      switch(step){
         case "start":
-          step = "isVowel";
-          letterIndex = 0;
-          updateUI("Does it start with a vowel?", "_", "");
+          step="isVowel"; letterIndex=0;
+          updateUI("Does it start with a vowel?","_","");
           break;
-
         case "isVowel":
-          // choose vowels set and start scanning
-          step = "vowels";
-          letterIndex = 0;
-          askNextVowel();
+          step="vowels"; letterIndex=0; askNextVowel();
           break;
-
         case "vowels":
-          // accept this vowel
-          currentWord += vowels[letterIndex];
-          afterLetterAdded();
+          currentWord += vowels[letterIndex]; afterLetterAdded();
           break;
-
         case "consonants":
-          // accept this consonant
-          currentWord += consonants[letterIndex];
-          afterLetterAdded();
+          currentWord += consonants[letterIndex]; afterLetterAdded();
           break;
-
         case "predict":
-          // accept current predicted letter and continue
-          if (predictedLetters[predictedIndex]) {
+          if(predictedLetters[predictedIndex]){
             currentWord += predictedLetters[predictedIndex];
             afterLetterAdded();
-          } else {
-            // safety: no prediction available, fall back
-            step = "isVowel";
-            letterIndex = 0;
-            updateUI("Does the next letter start with a vowel?", "_", "");
+          }else{
+            step="isVowel"; letterIndex=0;
+            updateUI("Does the next letter start with a vowel?","_","");
           }
           break;
-
         case "askNextWord":
-          // commit the recognized/finished word, then move to next
           currentSentence += (currentSentence ? " " : "") + currentWord;
-          // Note: if it wasn't in words.txt, it will still be recognized if added earlier
-          // (but recognized words reach askNextWord only if they are known)
           currentWord = "";
-          step = "start";
-          updateUI("Next word?", "_", "");
+          step="start";
+          updateUI("Next word?","_","");
           break;
-
         case "confirmEndWord":
-          // user confirms end of a word not recognized by dictionary
           currentSentence += (currentSentence ? " " : "") + currentWord;
-          finalizeWordStoreIfNeeded(currentWord); // add to custom dictionary if unknown
-          currentWord = "";
-          step = "start";
-          updateUI("Next word?", "_", "");
-          break;
-
-        default:
-          // no-op
+          finalizeWordStoreIfNeeded(currentWord);
+          currentWord="";
+          step="start";
+          updateUI("Next word?","_","");
           break;
       }
     }
 
-    function handleNo() {
-      switch (step) {
+    function handleNo(){
+      switch(step){
         case "isVowel":
-          // choose consonants set and start scanning
-          step = "consonants";
-          letterIndex = 0;
-          askNextConsonant();
+          step="consonants"; letterIndex=0; askNextConsonant();
           break;
-
         case "vowels":
-          // move to next vowel
-          letterIndex++;
-          askNextVowel();
+          letterIndex++; askNextVowel();
           break;
-
         case "consonants":
-          // move to next consonant; if exhausted, we'll ask to end word
-          letterIndex++;
-          askNextConsonant();
+          letterIndex++; askNextConsonant();
           break;
-
         case "predict":
-          // move to the next predicted letter; if none remain, fall back to vowel/consonant scan
           predictedIndex++;
-          if (predictedIndex < predictedLetters.length) {
-            updateUI(`Is next letter "${predictedLetters[predictedIndex]}"?`,
-                     predictedLetters[predictedIndex],
-                     predictedLetters[predictedIndex]);
-          } else {
-            // no more predicted letters → revert to vowel/consonant logic
-            step = "isVowel";
-            letterIndex = 0;
-            updateUI("No more predictions. Does the next letter start with a vowel?", "_", "");
+          if(predictedIndex < predictedLetters.length){
+            const p = predictedLetters[predictedIndex];
+            updateUI(\`Is next letter "\${p}"?\`, p, p);
+          }else{
+            step="isVowel"; letterIndex=0;
+            updateUI("No more predictions. Does the next letter start with a vowel?","_","");
           }
           break;
-
         case "askNextWord":
-          // user wants to continue the same word → keep spelling from predictions or fall back
-          // Try predictions first:
+          // keep spelling this same word
           predictedLetters = computePredictedLetters(currentWord);
           predictedIndex = 0;
-          if (predictedLetters.length > 0) {
-            step = "predict";
-            updateUI(`Is next letter "${predictedLetters[predictedIndex]}"?`,
-                     predictedLetters[predictedIndex],
-                     predictedLetters[predictedIndex]);
-          } else {
-            step = "isVowel";
-            letterIndex = 0;
-            updateUI("No predictions. Does the next letter start with a vowel?", "_", "");
+          if(predictedLetters.length){
+            step="predict";
+            const p = predictedLetters[predictedIndex];
+            updateUI(\`Is next letter "\${p}"?\`, p, p);
+          }else{
+            step="isVowel"; letterIndex=0;
+            updateUI("No predictions. Does the next letter start with a vowel?","_","");
           }
           break;
-
         case "confirmEndWord":
-          // user says NO to ending → keep spelling (start with vowel/consonant again)
-          step = "isVowel";
-          letterIndex = 0;
-          updateUI("Keep spelling. Does the next letter start with a vowel?", "_", "");
-          break;
-
-        default:
-          // no-op
+          // keep spelling
+          step="isVowel"; letterIndex=0;
+          updateUI("Keep spelling. Does the next letter start with a vowel?","_","");
           break;
       }
     }
 
-    /* ================= Eye Detection (placeholder with frame gating) =================
-       This stub just simulates YES/NO via timing. Replace with your real detector.
-    ================================================================================ */
-    let upFrames = 0, downFrames = 0;
-    const requiredFrames = 15;
+    yesBtn.addEventListener("click", handleYes);
+    noBtn.addEventListener("click", handleNo);
 
-    function calibrate(dir) {
-      logDebug(`Calibrated ${dir}`);
+    /* ================== Eye Tracking with Debug ================== */
+    const video = document.getElementById("webcam");
+    const showVideo = document.getElementById("showVideo");
+    const holdFramesInput = document.getElementById("holdFrames");
+    const holdFramesVal = document.getElementById("holdFramesVal");
+    const sensInput = document.getElementById("sens");
+    const sensVal = document.getElementById("sensVal");
+
+    let faceMesh, camera;
+    let calibUp = null, calibDown = null;
+    let lastTrigger = 0;
+    let holdUp = 0, holdDown = 0;
+    let FPS = 0, lastTS = performance.now();
+    let deltaMA = []; // moving average buffer
+    const SMOOTH_N = 5;
+
+    function setFPS(){
+      const now = performance.now();
+      const dt = now - lastTS;
+      lastTS = now;
+      FPS = dt > 0 ? Math.round(1000/dt) : FPS;
     }
 
-    // Simulated detection loop (replace with real eye detection when ready)
-    setInterval(() => {
-      const r = Math.random();
-      if (r > 0.985) {
-        upFrames++;
-        if (upFrames >= requiredFrames) {
-          logDebug("Detected LOOK UP (YES)");
+    function updateChips(direction, delta, upThresh, downThresh){
+      chipFace.textContent = "Face: " + (direction ? "Detected" : "—");
+      chipState.textContent = "Eye: " + (direction || "NEUTRAL");
+      chipFPS.textContent = "FPS: " + (FPS || "—");
+      chipHolds.textContent = `Holds U/D: ${holdUp}/${holdDown}`;
+      chipDelta.textContent = "Δ: " + (delta!==null ? delta.toFixed(4) : "—");
+      chipThresh.textContent = "↑/↓: " + (upThresh!==null ? upThresh.toFixed(4) : "—") + " / " + (downThresh!==null ? downThresh.toFixed(4) : "—");
+    }
+
+    function computeDelta(landmarks){
+      // indices: upper/lower lids and nose tip
+      const lt = landmarks[159], lb = landmarks[145];
+      const rt = landmarks[386], rb = landmarks[374];
+      const nose = landmarks[1] || landmarks[4];
+      if(!lt||!lb||!rt||!rb||!nose) return null;
+      const leftY  = (lt.y + lb.y) / 2;
+      const rightY = (rt.y + rb.y) / 2;
+      const eyeY = (leftY + rightY) / 2;
+      return (nose.y - eyeY); // + when eyes are above nose (looking up)
+    }
+
+    function smoothedDelta(raw){
+      if(raw===null) return null;
+      deltaMA.push(raw);
+      if(deltaMA.length>SMOOTH_N) deltaMA.shift();
+      const avg = deltaMA.reduce((a,b)=>a+b,0)/deltaMA.length;
+      return avg;
+    }
+
+    function thresholds(){
+      if(calibUp===null || calibDown===null) return {up:null, down:null};
+      const mid = (calibUp + calibDown) / 2;
+      const range = Math.abs(calibUp - calibDown);
+      const mult = Number(sensInput.value)/100; // 0.05..0.40
+      return { up: mid + range*mult, down: mid - range*mult };
+    }
+
+    async function initFace(){
+      faceMesh = new FaceMesh({ locateFile:(f)=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}` });
+      faceMesh.setOptions({
+        maxNumFaces:1, refineLandmarks:true,
+        minDetectionConfidence:0.6, minTrackingConfidence:0.6
+      });
+      faceMesh.onResults(onResults);
+
+      try{
+        const stream = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
+        video.srcObject = stream;
+      }catch(e){
+        logDebug("Camera permission denied or unavailable.");
+        return;
+      }
+
+      camera = new Camera(video, {
+        onFrame: async () => { await faceMesh.send({image: video}); },
+        width: 640, height: 480
+      });
+      camera.start();
+    }
+
+    function onResults(results){
+      setFPS();
+
+      if(!results.multiFaceLandmarks || results.multiFaceLandmarks.length===0){
+        updateChips(null, null, null, null);
+        return;
+      }
+      const lms = results.multiFaceLandmarks[0];
+      const dRaw = computeDelta(lms);
+      const d = smoothedDelta(dRaw);
+      const {up, down} = thresholds();
+
+      let dir = "NEUTRAL";
+      const now = performance.now();
+      const holdNeeded = Number(holdFramesInput.value);
+
+      if(d!==null && up!==null && down!==null){
+        if(d > up) { dir = "UP"; holdUp++; holdDown=0; }
+        else if(d < down) { dir = "DOWN"; holdDown++; holdUp=0; }
+        else { dir = "NEUTRAL"; holdUp=0; holdDown=0; }
+
+        // trigger YES/NO when held enough frames and cooldown passed
+        if(dir==="UP" && holdUp>=holdNeeded && now-lastTrigger>250){
+          lastTrigger = now;
+          logDebug("[EYE] YES (UP held)");
           handleYes();
-          upFrames = 0;
+          holdUp=0;
         }
-      } else if (r < 0.015) {
-        downFrames++;
-        if (downFrames >= requiredFrames) {
-          logDebug("Detected LOOK DOWN (NO)");
+        if(dir==="DOWN" && holdDown>=holdNeeded && now-lastTrigger>250){
+          lastTrigger = now;
+          logDebug("[EYE] NO (DOWN held)");
           handleNo();
-          downFrames = 0;
+          holdDown=0;
         }
-      } else {
-        upFrames = 0;
-        downFrames = 0;
       }
-    }, 100);
+      updateChips(dir, d, up, down);
+    }
 
-    /* ================= Init ================= */
-    document.getElementById("yesBtn").addEventListener("click", handleYes);
-    document.getElementById("noBtn").addEventListener("click", handleNo);
+    function calibrate(which){
+      // Take a short burst average for better stability
+      if(lastCalSample) return; // prevent overlapping
+      sampleCalibration(which);
+    }
 
-    // Start screen
+    let lastCalSample = null;
+    function sampleCalibration(which){
+      lastCalSample = { which, samples:[], taken:0 };
+      const target = lastCalSample;
+      const take = () => {
+        if(!deltaMA.length){ // wait until we have at least one delta
+          requestAnimationFrame(take); return;
+        }
+        // use the most recent smoothed value
+        const val = deltaMA[deltaMA.length-1];
+        if(val!==null) target.samples.push(val);
+        target.taken++;
+        if(target.taken<20){
+          setTimeout(take, 40); // ~20 samples over ~800ms
+        }else{
+          const avg = target.samples.reduce((a,b)=>a+b,0)/target.samples.length;
+          if(which==="up"){ calibUp = avg; logDebug(`[CAL] UP = ${avg.toFixed(4)}`); }
+          else { calibDown = avg; logDebug(`[CAL] DOWN = ${avg.toFixed(4)}`); }
+          lastCalSample = null;
+        }
+      };
+      take();
+    }
+
+    // UI control bindings
+    holdFramesInput.addEventListener("input", ()=> holdFramesVal.textContent = holdFramesInput.value);
+    sensInput.addEventListener("input", ()=> sensVal.textContent = (Number(sensInput.value)/100).toFixed(2));
+    document.getElementById("showVideo").addEventListener("change", (e)=>{
+      document.getElementById("webcam").style.display = e.target.checked ? "block" : "none";
+    });
+
+    document.getElementById("calUpBtn").addEventListener("click", ()=>calibrate("up"));
+    document.getElementById("calDownBtn").addEventListener("click", ()=>calibrate("down"));
+
+    // Buttons
+    yesBtn.addEventListener("click", handleYes);
+    noBtn.addEventListener("click", handleNo);
+
+    /* ============ Start typing flow ============ */
     startFlow();
+
+    /* ============ Init face tracking =========== */
+    initFace();
   </script>
 </body>
 </html>
+
+
 
