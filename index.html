@@ -30,6 +30,7 @@
       border-radius: 10px;
       background: #fff;
       width: 80%;
+      min-height: 1.2em;
     }
     .info {
       margin: 10px 0;
@@ -40,6 +41,8 @@
       justify-content: center;
       gap: 15px;
       margin: 15px 0;
+      width: 90%;
+      max-width: 600px;
     }
     button {
       font-size: 1.2em;
@@ -48,6 +51,7 @@
       border: none;
       cursor: pointer;
       box-shadow: 2px 2px 6px rgba(0,0,0,0.2);
+      flex: 1 1 48%;
     }
     .yes { background: #4CAF50; color: white; }
     .no { background: #f44336; color: white; }
@@ -66,9 +70,7 @@
       height: 200px;
       overflow-y: auto;
     }
-    video {
-      display: none; /* hide raw camera feed */
-    }
+    video { display: none; } /* hide raw camera feed */
   </style>
 </head>
 <body>
@@ -77,24 +79,24 @@
     <div class="letter" id="letter">_</div>
     <div class="info">Sentence: <span id="sentence"></span></div>
     <div class="info">Predicted Next Letter: <span id="prediction"></span></div>
+
     <div class="buttons">
-      <button class="yes" onclick="handleYes()">Yes</button>
-      <button class="no" onclick="handleNo()">No</button>
+      <button class="yes" id="yesBtn">Yes</button>
+      <button class="no" id="noBtn">No</button>
     </div>
     <div class="buttons">
       <button class="calibrate" onclick="calibrate('up')">Calibrate Up</button>
       <button class="calibrate" onclick="calibrate('down')">Calibrate Down</button>
     </div>
+
     <div id="debug"></div>
     <video id="video" autoplay playsinline></video>
   </div>
 
   <script>
-    // ------------------------
-    // Dictionaries
-    // ------------------------
+    /* ================= Dictionaries ================= */
     let dictionary = new Set();
-    let customDictionary = new Set();
+    let customDictionary = new Set(); // session-only, grows when you confirm out-of-file words
 
     fetch("words.txt")
       .then(res => res.text())
@@ -103,176 +105,269 @@
           if (word.trim()) dictionary.add(word.trim().toLowerCase());
         });
         logDebug(`Loaded ${dictionary.size} words from words.txt`);
+      })
+      .catch(() => {
+        // small fallback
+        ["hello","hi","have","hope","good","great","you","yes","no"].forEach(w=>dictionary.add(w));
+        logDebug("Failed to load words.txt; using fallback dictionary.");
       });
 
-    function finalizeWord(word) {
+    function finalizeWordStoreIfNeeded(word) {
       const lower = word.toLowerCase();
-      if (dictionary.has(lower) || customDictionary.has(lower)) {
-        logDebug(`Word recognized: ${word}`);
-      } else {
+      if (!dictionary.has(lower) && !customDictionary.has(lower)) {
         customDictionary.add(lower);
-        logDebug(`Added new word to custom dictionary: ${word}`);
+        logDebug(`Added new word to custom dictionary (session): "${word}"`);
+      } else {
+        logDebug(`Word recognized (already known): "${word}"`);
       }
     }
 
-    function getNextLetterPrediction(prefix) {
-      prefix = prefix.toLowerCase();
-      const allWords = [...dictionary, ...customDictionary];
-      let freq = {};
-      allWords.forEach(w => {
-        if (w.startsWith(prefix) && w.length > prefix.length) {
-          let nextChar = w[prefix.length];
-          freq[nextChar] = (freq[nextChar] || 0) + 1;
-        }
-      });
-      let sorted = Object.entries(freq).sort((a,b)=>b[1]-a[1]);
-      return sorted.length > 0 ? sorted.map(x=>x[0].toUpperCase()) : [];
-    }
-
-    // ------------------------
-    // State
-    // ------------------------
+    /* ================= State ================= */
     let currentSentence = "";
     let currentWord = "";
     let step = "start";
-    let letterIndex = 0;
 
     const vowels = ["A","E","I","O","U"];
     const consonants = ["T","N","S","H","R","D","L","C","M","F","W","G","Y","P","B","V","K","X","J","Q","Z"];
 
-    // ------------------------
-    // UI Helpers
-    // ------------------------
-    function updateUI(prompt, letter, prediction) {
-      document.getElementById("prompt").textContent = prompt;
-      document.getElementById("letter").textContent = letter || "_";
-      document.getElementById("sentence").textContent = currentSentence;
-      document.getElementById("prediction").textContent = prediction || "";
+    let letterIndex = 0;                 // index while scanning vowels/consonants
+    let predictedLetters = [];           // current list of predicted next letters (uppercase)
+    let predictedIndex = 0;              // which predicted letter we're currently asking about
+
+    /* ================= UI Helpers ================= */
+    const promptEl = document.getElementById("prompt");
+    const letterEl = document.getElementById("letter");
+    const sentenceEl = document.getElementById("sentence");
+    const predictionEl = document.getElementById("prediction");
+    const debugEl = document.getElementById("debug");
+
+    function updateUI(prompt, letter, predicted) {
+      if (prompt !== undefined) promptEl.textContent = prompt;
+      if (letter !== undefined) letterEl.textContent = letter || "_";
+      sentenceEl.textContent = currentSentence;
+      predictionEl.textContent = predicted || "";
     }
 
     function logDebug(msg) {
-      const debugBox = document.getElementById("debug");
-      debugBox.innerHTML += msg + "<br>";
-      debugBox.scrollTop = debugBox.scrollHeight;
+      debugEl.innerHTML += msg + "<br>";
+      debugEl.scrollTop = debugEl.scrollHeight;
       console.log(msg);
     }
 
-    // ------------------------
-    // Prediction flow
-    // ------------------------
-    function startFlow() {
-      step = "start";
-      updateUI("Would you like to start?", "", "");
+    function isKnownWord(w) {
+      const lower = w.toLowerCase();
+      return dictionary.has(lower) || customDictionary.has(lower);
     }
 
-    function handleYes() {
-      if (step === "start") {
-        step = "isVowel";
-        updateUI("Does it start with a vowel?", "", "");
+    /* ======== Next-letter predictions (letters, not words) ======== */
+    function computePredictedLetters(prefix) {
+      const p = prefix.toLowerCase();
+      const allWords = [...dictionary, ...customDictionary];
+      const freq = {};
+      for (const w of allWords) {
+        if (w.startsWith(p) && w.length > p.length) {
+          const ch = w[p.length].toUpperCase();
+          freq[ch] = (freq[ch] || 0) + 1;
+        }
+      }
+      // sort by frequency desc, tie-breaker alphabetically
+      return Object.entries(freq)
+        .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(x => x[0]);
+    }
+
+    /* ================= Flow ================= */
+    function startFlow() {
+      step = "start";
+      updateUI("Would you like to start?", "_", "");
+      currentWord = "";
+    }
+
+    // After any confirmed letter, decide what to ask next
+    function afterLetterAdded() {
+      // If the partial is an exact known word, pause and ask to move on
+      if (isKnownWord(currentWord)) {
+        step = "askNextWord";
+        predictedLetters = [];
+        predictedIndex = 0;
+        updateUI(`Word is "${currentWord}". Next word?`, currentWord.slice(-1).toUpperCase(), "");
         return;
       }
-      if (step === "isVowel") {
+
+      // Otherwise, try predicted next letters first
+      predictedLetters = computePredictedLetters(currentWord);
+      predictedIndex = 0;
+
+      if (predictedLetters.length > 0) {
+        step = "predict";
+        updateUI(`Is next letter "${predictedLetters[predictedIndex]}"?`, predictedLetters[predictedIndex], predictedLetters[predictedIndex]);
+        return;
+      }
+
+      // No predictions → fall back to vowel/consonant question
+      step = "isVowel";
+      letterIndex = 0;
+      updateUI("Does the next letter start with a vowel?", "_", "");
+    }
+
+    // Ask next vowel in order
+    function askNextVowel() {
+      if (letterIndex < vowels.length) {
+        updateUI(`Is the letter ${vowels[letterIndex]}?`, vowels[letterIndex], "");
+      } else {
+        // Switch to consonant scan after finishing vowels
+        step = "consonants";
         letterIndex = 0;
-        step = "vowels";
-        askNextVowel();
-        return;
+        askNextConsonant();
       }
-      if (step === "vowels") {
-        currentWord += vowels[letterIndex];
-        afterLetter();
-        return;
+    }
+
+    // Ask next consonant in order
+    function askNextConsonant() {
+      if (letterIndex < consonants.length) {
+        updateUI(`Is the letter ${consonants[letterIndex]}?`, consonants[letterIndex], "");
+      } else {
+        // We've exhausted both vowels and consonants without success → ask to end the word
+        step = "confirmEndWord";
+        updateUI(`End word "${currentWord}"?`, "✔", "");
       }
-      if (step === "consonants") {
-        currentWord += consonants[letterIndex];
-        afterLetter();
-        return;
-      }
-      if (step === "predict") {
-        let preds = getNextLetterPrediction(currentWord);
-        if (preds.length > 0) {
-          currentWord += preds[0];
-          afterLetter();
-        } else {
-          finalizeWord(currentWord);
+    }
+
+    /* ================= YES / NO handlers ================= */
+    function handleYes() {
+      switch (step) {
+        case "start":
+          step = "isVowel";
+          letterIndex = 0;
+          updateUI("Does it start with a vowel?", "_", "");
+          break;
+
+        case "isVowel":
+          // choose vowels set and start scanning
+          step = "vowels";
+          letterIndex = 0;
+          askNextVowel();
+          break;
+
+        case "vowels":
+          // accept this vowel
+          currentWord += vowels[letterIndex];
+          afterLetterAdded();
+          break;
+
+        case "consonants":
+          // accept this consonant
+          currentWord += consonants[letterIndex];
+          afterLetterAdded();
+          break;
+
+        case "predict":
+          // accept current predicted letter and continue
+          if (predictedLetters[predictedIndex]) {
+            currentWord += predictedLetters[predictedIndex];
+            afterLetterAdded();
+          } else {
+            // safety: no prediction available, fall back
+            step = "isVowel";
+            letterIndex = 0;
+            updateUI("Does the next letter start with a vowel?", "_", "");
+          }
+          break;
+
+        case "askNextWord":
+          // commit the recognized/finished word, then move to next
           currentSentence += (currentSentence ? " " : "") + currentWord;
+          // Note: if it wasn't in words.txt, it will still be recognized if added earlier
+          // (but recognized words reach askNextWord only if they are known)
           currentWord = "";
           step = "start";
-          updateUI("Next word?", "", "");
-        }
-        return;
+          updateUI("Next word?", "_", "");
+          break;
+
+        case "confirmEndWord":
+          // user confirms end of a word not recognized by dictionary
+          currentSentence += (currentSentence ? " " : "") + currentWord;
+          finalizeWordStoreIfNeeded(currentWord); // add to custom dictionary if unknown
+          currentWord = "";
+          step = "start";
+          updateUI("Next word?", "_", "");
+          break;
+
+        default:
+          // no-op
+          break;
       }
     }
 
     function handleNo() {
-      if (step === "isVowel") {
-        letterIndex = 0;
-        step = "consonants";
-        askNextConsonant();
-        return;
-      }
-      if (step === "vowels") {
-        letterIndex++;
-        askNextVowel();
-        return;
-      }
-      if (step === "consonants") {
-        letterIndex++;
-        askNextConsonant();
-        return;
-      }
-      if (step === "predict") {
-        finalizeWord(currentWord);
-        currentSentence += (currentSentence ? " " : "") + currentWord;
-        currentWord = "";
-        step = "start";
-        updateUI("Next word?", "", "");
-        return;
-      }
-    }
+      switch (step) {
+        case "isVowel":
+          // choose consonants set and start scanning
+          step = "consonants";
+          letterIndex = 0;
+          askNextConsonant();
+          break;
 
-    function askNextVowel() {
-      if (letterIndex < vowels.length) {
-        updateUI("Is the letter " + vowels[letterIndex] + "?", vowels[letterIndex], "");
-      } else {
-        step = "predict";
-        let preds = getNextLetterPrediction(currentWord);
-        updateUI("Predicting next letter", "", preds[0] || "No prediction");
-      }
-    }
+        case "vowels":
+          // move to next vowel
+          letterIndex++;
+          askNextVowel();
+          break;
 
-    function askNextConsonant() {
-      if (letterIndex < consonants.length) {
-        updateUI("Is the letter " + consonants[letterIndex] + "?", consonants[letterIndex], "");
-      } else {
-        step = "predict";
-        let preds = getNextLetterPrediction(currentWord);
-        updateUI("Predicting next letter", "", preds[0] || "No prediction");
-      }
-    }
+        case "consonants":
+          // move to next consonant; if exhausted, we'll ask to end word
+          letterIndex++;
+          askNextConsonant();
+          break;
 
-    function afterLetter() {
-      let preds = getNextLetterPrediction(currentWord);
-      if (preds.length > 0) {
-        step = "predict";
-        updateUI("Predicting next letter", "", preds[0]);
-      } else {
-        // Word might be finished
-        if (dictionary.has(currentWord.toLowerCase()) || customDictionary.has(currentWord.toLowerCase())) {
-          finalizeWord(currentWord);
-          currentSentence += (currentSentence ? " " : "") + currentWord;
-          currentWord = "";
-          step = "start";
-          updateUI("Next word?", "", "");
-        } else {
+        case "predict":
+          // move to the next predicted letter; if none remain, fall back to vowel/consonant scan
+          predictedIndex++;
+          if (predictedIndex < predictedLetters.length) {
+            updateUI(`Is next letter "${predictedLetters[predictedIndex]}"?`,
+                     predictedLetters[predictedIndex],
+                     predictedLetters[predictedIndex]);
+          } else {
+            // no more predicted letters → revert to vowel/consonant logic
+            step = "isVowel";
+            letterIndex = 0;
+            updateUI("No more predictions. Does the next letter start with a vowel?", "_", "");
+          }
+          break;
+
+        case "askNextWord":
+          // user wants to continue the same word → keep spelling from predictions or fall back
+          // Try predictions first:
+          predictedLetters = computePredictedLetters(currentWord);
+          predictedIndex = 0;
+          if (predictedLetters.length > 0) {
+            step = "predict";
+            updateUI(`Is next letter "${predictedLetters[predictedIndex]}"?`,
+                     predictedLetters[predictedIndex],
+                     predictedLetters[predictedIndex]);
+          } else {
+            step = "isVowel";
+            letterIndex = 0;
+            updateUI("No predictions. Does the next letter start with a vowel?", "_", "");
+          }
+          break;
+
+        case "confirmEndWord":
+          // user says NO to ending → keep spelling (start with vowel/consonant again)
           step = "isVowel";
-          updateUI("Does the next letter start with a vowel?", "", "");
-        }
+          letterIndex = 0;
+          updateUI("Keep spelling. Does the next letter start with a vowel?", "_", "");
+          break;
+
+        default:
+          // no-op
+          break;
       }
     }
 
-    // ------------------------
-    // Eye Detection (simplified stub)
-    // ------------------------
+    /* ================= Eye Detection (placeholder with frame gating) =================
+       This stub just simulates YES/NO via timing. Replace with your real detector.
+    ================================================================================ */
     let upFrames = 0, downFrames = 0;
     const requiredFrames = 15;
 
@@ -280,16 +375,17 @@
       logDebug(`Calibrated ${dir}`);
     }
 
+    // Simulated detection loop (replace with real eye detection when ready)
     setInterval(() => {
-      let rand = Math.random();
-      if (rand > 0.97) {
+      const r = Math.random();
+      if (r > 0.985) {
         upFrames++;
         if (upFrames >= requiredFrames) {
           logDebug("Detected LOOK UP (YES)");
           handleYes();
           upFrames = 0;
         }
-      } else if (rand < 0.03) {
+      } else if (r < 0.015) {
         downFrames++;
         if (downFrames >= requiredFrames) {
           logDebug("Detected LOOK DOWN (NO)");
@@ -302,10 +398,13 @@
       }
     }, 100);
 
-    // ------------------------
-    // Start
-    // ------------------------
+    /* ================= Init ================= */
+    document.getElementById("yesBtn").addEventListener("click", handleYes);
+    document.getElementById("noBtn").addEventListener("click", handleNo);
+
+    // Start screen
     startFlow();
   </script>
 </body>
 </html>
+
