@@ -43,8 +43,8 @@
 <body>
   <div class="wrap">
     <section class="card">
-      <h1>Gaze-Driven Yes/No (Up=Yes, Down=No)</h1>
-      <p class="sub">Hold <b>UP</b> for 3 seconds to start. Then answer prompts with your eyes:
+      <h1>Gaze-Driven Yes/No (Up = Yes, Down = No)</h1>
+      <p class="sub">Click <b>Start Camera</b> and <b>Calibrate Neutral</b>. Then use your eyes to answer prompts:
         <span class="kbd">UP = Yes</span>, <span class="kbd">DOWN = No</span>. Everything runs locally in your browser.</p>
 
       <div class="stage">
@@ -65,6 +65,12 @@
         <div class="chip">Band ± <span id="bandVal">0.10</span>
           <input id="band" type="range" min="0.05" max="0.25" step="0.01" value="0.10" style="vertical-align:middle;margin-left:6px">
         </div>
+        <div class="chip">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input id="invertChk" type="checkbox" />
+            Invert up/down
+          </label>
+        </div>
       </div>
 
       <div id="gazeState" class="big state-center">CENTER</div>
@@ -73,17 +79,22 @@
 
     <aside class="card">
       <div class="q">Conversation</div>
-      <div class="prompt" id="prompt">Idle. Look UP for 3s to begin.</div>
+
+      <!-- Start/Reset controls for the writing flow -->
+      <div class="row" style="gap:8px; margin:6px 0 10px">
+        <button class="btn" id="startWriteBtn">✍️ Start Writing</button>
+        <button class="btn" id="resetBtn">↻ Reset</button>
+      </div>
+
+      <div class="prompt" id="prompt">Idle. Click “Start Writing” to begin.</div>
       <div class="row" style="gap:6px; margin-bottom:8px">
         <div class="chip">Yes hold: <span id="yesHold">0</span> ms</div>
         <div class="chip">No hold: <span id="noHold">0</span> ms</div>
       </div>
       <textarea id="sentence" class="output" placeholder="Your sentence will appear here…" spellcheck="false"></textarea>
       <div class="small" style="margin-top:8px">
-        Flow: Idle → “Write a sentence?” → If Yes: vowel? If vowel, ask A/E/I/O/U in order.
-        If not vowel, test consonants in this order:
-        <span class="kbd">T N S H R D L C M F W G Y P B V K X J Q Z</span>.
-        Then predict from <span class="kbd">word.txt</span>. If not matched, keep adding letters.
+        Flow: Start Writing → “Write a sentence?” → Vowel? (A/E/I/O/U) → else consonant in this order:
+        <span class="kbd">T N S H R D L C M F W G Y P B V K X J Q Z</span>. As letters are chosen, predictions from <span class="kbd">word.txt</span> appear (UP selects, DOWN cycles).
       </div>
     </aside>
   </div>
@@ -94,7 +105,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
 
   <script>
-  /************ 1) Face + Iris → Up/Down detector (same core as before) ************/
+  /************ 1) Face + Iris → Up/Down detector ************/
   const video  = document.getElementById('video');
   const canvas = document.getElementById('canvas');
   const ctx    = canvas.getContext('2d');
@@ -111,6 +122,10 @@
 
   const band     = document.getElementById('band');
   const bandVal  = document.getElementById('bandVal');
+
+  const invertChk = document.getElementById('invertChk');
+  let invertUpDown = false;
+  invertChk.addEventListener('change', () => { invertUpDown = invertChk.checked; });
 
   const yesHoldEl = document.getElementById('yesHold');
   const noHoldEl  = document.getElementById('noHold');
@@ -148,7 +163,7 @@
     if(!results.multiFaceLandmarks || !results.multiFaceLandmarks.length){
       setGazeLabel("NO FACE","state-center");
       lratioEl.textContent=rratioEl.textContent=avgEl.textContent="—";
-      updateDecision("center"); // keep timers from drifting
+      updateDecision("center");
       return;
     }
     const lm = results.multiFaceLandmarks[0];
@@ -162,9 +177,16 @@
     neutralEl.textContent= neutral.toFixed(3);
 
     let status = "center";
-    if (avg < neutral - bandWidth) { status = "down";   setGazeLabel("DOWN","state-down"); }
-    else if (avg > neutral + bandWidth) { status = "up"; setGazeLabel("UP","state-up"); }
-    else { setGazeLabel("CENTER","state-center"); }
+    // Decision with optional inversion
+    if (!invertUpDown) {
+      if (avg < neutral - bandWidth) { status = "up";   setGazeLabel("UP","state-up"); }
+      else if (avg > neutral + bandWidth) { status = "down"; setGazeLabel("DOWN","state-down"); }
+      else { setGazeLabel("CENTER","state-center"); }
+    } else {
+      if (avg < neutral - bandWidth) { status = "down"; setGazeLabel("DOWN","state-down"); }
+      else if (avg > neutral + bandWidth) { status = "up";   setGazeLabel("UP","state-up"); }
+      else { setGazeLabel("CENTER","state-center"); }
+    }
     updateDecision(status);
   }
 
@@ -179,27 +201,34 @@
     camera.start().catch(err=>{ alert("Camera error (needs HTTPS & permissions):\n\n"+err); running=false; });
   }
   function stop(){ running=false; if(camera){camera.stop(); camera=null;} setGazeLabel("STOPPED","state-center"); }
+
+  // Median-based neutral calibration (~600ms sampling)
   async function calibrate(){
-    if(!running) { alert("Start camera first."); return; }
-    const snaps = [];
+    if(!running){ alert("Start camera first."); return; }
+    const samples = [];
     const t0 = performance.now();
-    while(performance.now()-t0 < 350){
-      const res = await faceMeshGlobal; // wait next frame via onResults (already handles)
-      // best-effort: neutral gets updated inside onResults; we’ll read the last Avg shown
+    await new Promise(resolve=>{
+      const tick = () => {
+        const a = parseFloat(avgEl.textContent);
+        if (!Number.isNaN(a)) samples.push(a);
+        if (performance.now() - t0 > 600) resolve(); else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    if (samples.length){
+      samples.sort((a,b)=>a-b);
+      neutral = samples[Math.floor(samples.length/2)];
+      neutralEl.textContent = neutral.toFixed(3);
     }
-    // Use currently displayed Avg as neutral (safer approach is to sample again; simple here):
-    const a = parseFloat(avgEl.textContent);
-    if(!Number.isNaN(a)) neutral = a;
-    neutralEl.textContent = neutral.toFixed(3);
   }
+
   startBtn.onclick = start; stopBtn.onclick = stop; calBtn.onclick = calibrate;
 
-  /************ 2) Yes/No timers + 3s activation ************/
+  /************ 2) Yes/No timers (button start for flow) ************/
   const YES_HOLD_MS = 1000; // hold UP for ≥ this to say "Yes"
   const NO_HOLD_MS  = 1000; // hold DOWN for ≥ this to say "No"
-  const WAKE_MS     = 3000; // hold UP for ≥ this to initiate from Idle
 
-  let curStatus = "center", lastStatus = "center";
+  let curStatus = "center";
   let yesAccum = 0, noAccum = 0;   // running hold timers
   let lastTick = performance.now();
 
@@ -208,21 +237,21 @@
     const dt = now - lastTick; lastTick = now;
     curStatus = status;
 
-    if(status === "up"){ yesAccum += dt; noAccum = Math.max(0, noAccum - dt*0.5); }
-    else if(status === "down"){ noAccum += dt; yesAccum = Math.max(0, yesAccum - dt*0.5); }
-    else { yesAccum = Math.max(0, yesAccum - dt*0.75); noAccum = Math.max(0, noAccum - dt*0.75); }
+    if(status === "up"){ 
+      yesAccum += dt; 
+      noAccum = Math.max(0, noAccum - dt*0.5); 
+    } else if(status === "down"){ 
+      noAccum += dt; 
+      yesAccum = Math.max(0, yesAccum - dt*0.5); 
+    } else { 
+      yesAccum = Math.max(0, yesAccum - dt*0.75); 
+      noAccum  = Math.max(0, noAccum  - dt*0.75); 
+    }
 
     yesHoldEl.textContent = Math.floor(yesAccum);
     noHoldEl.textContent  = Math.floor(noAccum);
 
-    // Activation from IDLE
-    if(flow.state === "IDLE" && yesAccum >= WAKE_MS){
-      yesAccum = 0; noAccum = 0;
-      askWriteSentence();
-      return;
-    }
-
-    // Regular decision
+    // Regular decision thresholds (no auto-wake)
     if(yesAccum >= YES_HOLD_MS){ yesAccum = 0; noAccum = 0; flowYes(); }
     if(noAccum  >= NO_HOLD_MS ){ yesAccum = 0; noAccum = 0; flowNo();  }
   }
@@ -233,7 +262,6 @@
     .then(r=>r.text())
     .then(t=>{
       WORDS = t.split(/\r?\n/).map(s=>s.trim().toLowerCase()).filter(Boolean);
-      // A simple sort: shorter then alpha; you can include a frequency file later.
       WORDS.sort((a,b)=> a.length-b.length || a.localeCompare(b));
     })
     .catch(()=>{ console.warn('Could not load word.txt'); });
@@ -245,7 +273,7 @@
   const flow = {
     state: "IDLE",
     wordPrefix: "",
-    askIndex: 0,        // for stepping through A,E,I,O,U or consonant list
+    askIndex: 0,        // stepping through A,E,I,O,U or consonant list
     preds: [],
     predIndex: 0
   };
@@ -254,7 +282,7 @@
 
   function resetToIdle(){
     flow.state = "IDLE"; flow.wordPrefix=""; flow.askIndex=0; flow.preds=[]; flow.predIndex=0;
-    setPrompt("Idle. Look UP for 3s to begin.");
+    setPrompt("Idle. Click “Start Writing” to begin.");
   }
 
   function askWriteSentence(){
@@ -272,7 +300,6 @@
   function askVowelLetter(){
     flow.state = "ASK_VOWEL_LETTER";
     if (flow.askIndex >= VOWELS.length){
-      // If we reached here, vowels were all “No” → consonant branch
       flow.askIndex = 0;
       return askConsonantLetter();
     }
@@ -283,7 +310,6 @@
   function askConsonantLetter(){
     flow.state = "ASK_CONS_LETTER";
     if (flow.askIndex >= CONSONANTS.length){
-      // None selected → treat as new word, per your rule
       setPrompt("No letter selected. Treat as a new word. Start again? (UP=Yes, DOWN=No)");
       flow.state = "RESTART_OR_IDLE";
       return;
@@ -294,11 +320,9 @@
 
   function commitLetter(ch){
     flow.wordPrefix += ch.toLowerCase();
-    // After a letter, try predictions
     flow.preds = WORDS.filter(w => w.startsWith(flow.wordPrefix));
     flow.predIndex = 0;
     if (flow.preds.length === 0){
-      // None predicted yet → keep adding letters (ask vowel/consonant again)
       flow.askIndex = 0;
       flow.state = "ASK_VOWEL_Q";
       setPrompt(`No words yet for "${flow.wordPrefix}". Next letter a vowel? (UP=Yes, DOWN=No)`);
@@ -310,7 +334,6 @@
   function askPrediction(){
     flow.state = "ASK_PREDICT";
     if (flow.predIndex >= flow.preds.length){
-      // Exhausted predictions → ask to add another letter
       flow.askIndex = 0;
       flow.state = "ASK_VOWEL_Q";
       setPrompt(`No match chosen. Add another letter? Vowel? (UP=Yes, DOWN=No)`);
@@ -323,17 +346,15 @@
   function acceptWord(word){
     const text = sentenceEl.value.trim();
     sentenceEl.value = (text ? text + ' ' : '') + word;
-    // Ask to add another word to the sentence
     flow.state = "ASK_ANOTHER_WORD";
     setPrompt('Add another word? (UP=Yes, DOWN=No)');
   }
 
-  /************ 5) Flow transitions on Yes/No ************/
   function flowYes(){
     switch(flow.state){
       case "IDLE":
-        // handled by activation hold, but safe fallback
         askWriteSentence(); break;
+
       case "ASK_WRITE":
         startWord(); break;
 
@@ -354,11 +375,9 @@
       }
 
       case "ASK_ANOTHER_WORD":
-        // Start another word
         startWord(); break;
 
       case "RESTART_OR_IDLE":
-        // restart new word
         startWord(); break;
 
       default: break;
@@ -371,7 +390,6 @@
         resetToIdle(); break;
 
       case "ASK_VOWEL_Q":
-        // Not a vowel → go to consonant list from the top
         flow.askIndex = 0; askConsonantLetter(); break;
 
       case "ASK_VOWEL_LETTER":
@@ -384,16 +402,28 @@
         flow.predIndex++; askPrediction(); break;
 
       case "ASK_ANOTHER_WORD":
-        // Finish sentence → go idle
         resetToIdle(); break;
 
       case "RESTART_OR_IDLE":
-        // No → idle
         resetToIdle(); break;
 
       default: /* ignore */ break;
     }
   }
+
+  // ----- Start/Reset buttons for the writing flow -----
+  const startWriteBtn = document.getElementById('startWriteBtn');
+  const resetBtn      = document.getElementById('resetBtn');
+
+  startWriteBtn.addEventListener('click', () => {
+    askWriteSentence(); // or call startWord() to skip the "Would you like to write?" prompt
+    yesAccum = 0; noAccum = 0;
+  });
+
+  resetBtn.addEventListener('click', () => {
+    resetToIdle();
+    yesAccum = 0; noAccum = 0;
+  });
 
   // Initialize display
   resetToIdle();
@@ -403,6 +433,7 @@
   </script>
 </body>
 </html>
+
 
 
 
