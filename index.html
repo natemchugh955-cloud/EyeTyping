@@ -179,8 +179,8 @@
     let status = "center";
     // Decision with optional inversion
     if (!invertUpDown) {
-      if (avg < neutral - bandWidth) { status = "up";   setGazeLabel("UP","state-up"); }
-      else if (avg > neutral + bandWidth) { status = "down"; setGazeLabel("DOWN","state-down"); }
+      if (avg < neutral - bandWidth) { status = "down";   setGazeLabel("DOWN","state-down"); }
+      else if (avg > neutral + bandWidth) { status = "UP"; setGazeLabel("UP","state-up"); }
       else { setGazeLabel("CENTER","state-center"); }
     } else {
       if (avg < neutral - bandWidth) { status = "down"; setGazeLabel("DOWN","state-down"); }
@@ -433,6 +433,7 @@
   </script>
 </body>
 </html>
+
 
 
 
