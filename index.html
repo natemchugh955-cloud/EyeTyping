@@ -225,8 +225,8 @@
   startBtn.onclick = start; stopBtn.onclick = stop; calBtn.onclick = calibrate;
 
   /************ 2) Yes/No timers (button start for flow) ************/
-  const YES_HOLD_MS = 1000; // hold UP for ≥ this to say "Yes"
-  const NO_HOLD_MS  = 1000; // hold DOWN for ≥ this to say "No"
+  const YES_HOLD_MS = 400; // hold UP for ≥ this to say "Yes"
+  const NO_HOLD_MS  = 400; // hold DOWN for ≥ this to say "No"
 
   let curStatus = "center";
   let yesAccum = 0, noAccum = 0;   // running hold timers
@@ -433,6 +433,7 @@
   </script>
 </body>
 </html>
+
 
 
 
